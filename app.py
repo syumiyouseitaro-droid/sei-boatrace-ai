@@ -195,7 +195,7 @@ def generate_predictions(hd_input, rno_input):
     
     # --- 修正箇所：1着予想の艇を必ず2着予想に含める ---
     top_1st = valid_df.nlargest(2, 'prob_1st')['枠番'].tolist()
-    top_2nd_raw = valid_df.nlargest(3, 'prob_2nd')['枠番'].tolist()
+    top_2nd_raw = valid_df.nlargest(4, 'prob_2nd')['枠番'].tolist()
     
     # setを使って重複を排除しつつ結合
     top_2nd = list(set(top_1st + top_2nd_raw))
