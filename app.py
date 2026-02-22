@@ -194,7 +194,7 @@ def generate_predictions(hd_input, rno_input):
     valid_df = target_df[~target_df['枠番'].isin(excluded_boats)]
     
     top_1st = valid_df.nlargest(2, 'prob_1st')['枠番'].tolist()
-    top_2nd = valid_df.nlargest(3, 'prob_2nd')['枠番'].tolist()
+    top_2nd = valid_df.nlargest(4, 'prob_2nd')['枠番'].tolist()
 
     combinations = []
     total_score = 0.0
