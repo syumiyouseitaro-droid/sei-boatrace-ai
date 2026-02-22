@@ -16,9 +16,9 @@ JCD = "13"
 st.set_page_config(page_title="競艇AI予想システム（尼崎）", page_icon="🚤", layout="centered")
 st.title("競艇AI予想システム（尼崎専用）")
 st.markdown("最新のデータとAI（HistGradientBoosting）を用いて、3連単の予想トップ30以内を算出します。")
+st.markdown("オッズ投票の人気順位よりAI予想順位の方が高いものに賭けてください")
 
 # --- キャッシュ機能 ---
-# モデルやマスターデータは重いため、一度だけ読み込んでキャッシュ（保存）します
 @st.cache_resource
 def load_models():
     clf_top3 = pickle.load(open("model_top3.pkl", "rb"))
@@ -196,7 +196,10 @@ def generate_predictions(hd_input, rno_input):
     top_1st = valid_df.nlargest(2, 'prob_1st')['枠番'].tolist()
     top_2nd = valid_df.nlargest(3, 'prob_2nd')['枠番'].tolist()
 
+    # --- 修正箇所：スコアの合計計算と正規化 ---
     combinations = []
+    total_score = 0.0
+    
     for c1 in top_1st:
         for c2 in top_2nd:
             if c1 == c2: continue
@@ -205,11 +208,24 @@ def generate_predictions(hd_input, rno_input):
                 p1 = target_df[target_df['枠番'] == c1]['prob_1st'].values[0]
                 p2 = target_df[target_df['枠番'] == c2]['prob_2nd'].values[0]
                 p3 = target_df[target_df['枠番'] == c3]['prob_top3'].values[0]
+                
                 score = p1 * p2 * p3
-                combinations.append({"買い目": f"{int(c1)}-{int(c2)}-{int(c3)}", "AIスコア": round(score, 4)})
+                total_score += score
+                combinations.append({"買い目": f"{int(c1)}-{int(c2)}-{int(c3)}", "raw_score": score})
 
-    combinations.sort(key=lambda x: x["AIスコア"], reverse=True)
-    return combinations[:30], excluded_boats
+    # パーセンテージへの変換
+    final_combinations = []
+    for item in combinations:
+        prob_pct = (item["raw_score"] / total_score) * 100 if total_score > 0 else 0
+        final_combinations.append({
+            "買い目": item["買い目"],
+            "予想的中率(%)": round(prob_pct, 1),
+            "AIスコア": item["raw_score"]
+        })
+
+    # 予想的中率が高い順にソート
+    final_combinations.sort(key=lambda x: x["予想的中率(%)"], reverse=True)
+    return final_combinations[:30], excluded_boats
 
 
 # --- UI部分 ---
@@ -235,10 +251,26 @@ if submitted:
                 st.info("ℹ️ 今回のレースで除外された艇はありません。")
 
             st.subheader("🏆 3連単 予想")
-            # 結果を綺麗なテーブルで表示
+            
+            # --- 修正箇所：データフレームの表示にバーチャートを適用 ---
             result_df = pd.DataFrame(results)
-            result_df.index = np.arange(1, len(result_df) + 1) # インデックスを1からにする
-            st.dataframe(result_df, use_container_width=True)
+            result_df.index = np.arange(1, len(result_df) + 1)
+            
+            st.dataframe(
+                result_df,
+                use_container_width=True,
+                column_config={
+                    "買い目": st.column_config.TextColumn("買い目", width="medium"),
+                    "予想的中率(%)": st.column_config.ProgressColumn(
+                        "予想的中率 (%)",
+                        help="AIの予測スコアを相対的な確率に変換した指標です",
+                        format="%.1f %%",
+                        min_value=0,
+                        max_value=30,  # 上位のパーセンテージがわかりやすくなるよう最大値を30%に設定
+                    ),
+                    "AIスコア": None # ユーザー画面からは非表示にする
+                }
+            )
 
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
