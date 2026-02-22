@@ -196,7 +196,6 @@ def generate_predictions(hd_input, rno_input):
     top_1st = valid_df.nlargest(2, 'prob_1st')['枠番'].tolist()
     top_2nd = valid_df.nlargest(3, 'prob_2nd')['枠番'].tolist()
 
-    # --- 修正箇所：スコアの合計計算と正規化 ---
     combinations = []
     total_score = 0.0
     
@@ -213,18 +212,25 @@ def generate_predictions(hd_input, rno_input):
                 total_score += score
                 combinations.append({"買い目": f"{int(c1)}-{int(c2)}-{int(c3)}", "raw_score": score})
 
-    # パーセンテージへの変換
+    # --- 修正箇所：確率の逆数を「予想オッズ」として計算 ---
     final_combinations = []
     for item in combinations:
-        prob_pct = (item["raw_score"] / total_score) * 100 if total_score > 0 else 0
+        prob = item["raw_score"] / total_score if total_score > 0 else 0
+        
+        # ゼロ除算を防ぐための処理（万が一確率が0になった場合）
+        if prob > 0:
+            expected_odds = 1.0 / prob
+        else:
+            expected_odds = 9999.9  
+            
         final_combinations.append({
             "買い目": item["買い目"],
-            "予想的中率(%)": round(prob_pct, 1),
+            "予想オッズ": round(expected_odds, 1),
             "AIスコア": item["raw_score"]
         })
 
-    # 予想的中率が高い順にソート
-    final_combinations.sort(key=lambda x: x["予想的中率(%)"], reverse=True)
+    # 予想オッズが低い順（＝的中確率が高い順）にソート
+    final_combinations.sort(key=lambda x: x["予想オッズ"])
     return final_combinations[:30], excluded_boats
 
 
@@ -243,30 +249,28 @@ if submitted:
         try:
             results, excluded = generate_predictions(hd_input, rno_input)
             
-            st.success("予想が完了しました！")
+            st.success("予想が完了しました")
             
             if excluded:
                 st.warning(f"⚠️ 除外艇（3着以内の確率2.5%以下）: {', '.join([str(int(x)) for x in excluded])}号艇")
             else:
                 st.info("ℹ️ 今回のレースで除外された艇はありません。")
 
-            st.subheader("🏆 3連単 予想")
+            st.subheader("🚤3連単 予想")
             
-            # --- 修正箇所：データフレームの表示にバーチャートを適用 ---
             result_df = pd.DataFrame(results)
             result_df.index = np.arange(1, len(result_df) + 1)
             
+            # --- 修正箇所：ProgressColumnをNumberColumnに変更し、予想オッズを表示 ---
             st.dataframe(
                 result_df,
                 use_container_width=True,
                 column_config={
                     "買い目": st.column_config.TextColumn("買い目", width="medium"),
-                    "予想的中率(%)": st.column_config.ProgressColumn(
-                        "予想的中率 (%)",
-                        help="AIの予測スコアを相対的な確率に変換した指標です",
-                        format="%.1f %%",
-                        min_value=0,
-                        max_value=30,  # 上位のパーセンテージがわかりやすくなるよう最大値を30%に設定
+                    "予想オッズ": st.column_config.NumberColumn(
+                        "予想オッズ",
+                        help="AIの予測スコアをオッズ換算した数値です。実際のオッズがこの数値より高ければ「期待値がプラス」と判断できます。",
+                        format="%.1f",
                     ),
                     "AIスコア": None # ユーザー画面からは非表示にする
                 }
