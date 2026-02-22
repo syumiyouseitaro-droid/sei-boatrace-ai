@@ -193,8 +193,12 @@ def generate_predictions(hd_input, rno_input):
     excluded_boats = target_df[target_df['prob_top3'] <= 0.025]['枠番'].tolist()
     valid_df = target_df[~target_df['枠番'].isin(excluded_boats)]
     
+    # --- 修正箇所：1着予想の艇を必ず2着予想に含める ---
     top_1st = valid_df.nlargest(2, 'prob_1st')['枠番'].tolist()
-    top_2nd = valid_df.nlargest(4, 'prob_2nd')['枠番'].tolist()
+    top_2nd_raw = valid_df.nlargest(3, 'prob_2nd')['枠番'].tolist()
+    
+    # setを使って重複を排除しつつ結合
+    top_2nd = list(set(top_1st + top_2nd_raw))
 
     combinations = []
     total_score = 0.0
@@ -212,12 +216,10 @@ def generate_predictions(hd_input, rno_input):
                 total_score += score
                 combinations.append({"買い目": f"{int(c1)}-{int(c2)}-{int(c3)}", "raw_score": score})
 
-    # --- 修正箇所：確率の逆数を「予想オッズ」として計算 ---
     final_combinations = []
     for item in combinations:
         prob = item["raw_score"] / total_score if total_score > 0 else 0
         
-        # ゼロ除算を防ぐための処理（万が一確率が0になった場合）
         if prob > 0:
             expected_odds = 1.0 / prob
         else:
@@ -229,7 +231,6 @@ def generate_predictions(hd_input, rno_input):
             "AIスコア": item["raw_score"]
         })
 
-    # 予想オッズが低い順（＝的中確率が高い順）にソート
     final_combinations.sort(key=lambda x: x["予想オッズ"])
     return final_combinations[:30], excluded_boats
 
@@ -261,7 +262,6 @@ if submitted:
             result_df = pd.DataFrame(results)
             result_df.index = np.arange(1, len(result_df) + 1)
             
-            # --- 修正箇所：ProgressColumnをNumberColumnに変更し、予想オッズを表示 ---
             st.dataframe(
                 result_df,
                 use_container_width=True,
@@ -272,7 +272,7 @@ if submitted:
                         help="AIの予測スコアをオッズ換算した数値です。実際のオッズがこの数値より高ければ「期待値がプラス」と判断できます。",
                         format="%.1f",
                     ),
-                    "AIスコア": None # ユーザー画面からは非表示にする
+                    "AIスコア": None 
                 }
             )
 
