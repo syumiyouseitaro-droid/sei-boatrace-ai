@@ -9,10 +9,7 @@ import pickle
 import warnings
 import itertools
 import time
-import matplotlib.pyplot as plt
-
-# インストールした日本語フォントを使うよう指定
-plt.rcParams['font.family'] = 'Noto Sans CJK JP'
+import plotly.graph_objects as go  # matplotlibからplotlyに変更
 
 warnings.filterwarnings('ignore')
 
@@ -96,44 +93,63 @@ def scrape_target_race_basic(hd, rno):
 
 def plot_probability_chart(p1, p_top2, p_top3, rno):
     """
-    1着率、2連対率、3連対率を横向きの積み上げ棒グラフ（1つの棒）で表現します。
+    Plotlyを用いてWebフォント依存の文字化けを防ぎつつ、
+    1着率、2着率、3着率を横向きの積み上げ棒グラフで表現します。
     """
     labels = [f'{i}号艇' for i in range(1, 7)]
-    y = np.arange(len(labels))
-    height = 0.6  # 棒の太さ
-
+    
     # 積み上げグラフ用にそれぞれの「単独の確率」を算出
     p1_only = p1
     p2_only = np.clip(p_top2 - p1, 0.0, 1.0)       # 2着のみの確率
-    p3_only = np.clip(p_top3 - p_top2, 0.0, 1.0)     # 3着のみの確率
+    p3_only = np.clip(p_top3 - p_top2, 0.0, 1.0)   # 3着のみの確率
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # 横向きの積み上げ棒グラフの描画
-    rects1 = ax.barh(y, p1_only, height, label='1着率', color='gold')
-    rects2 = ax.barh(y, p2_only, height, left=p1_only, label='2着率', color='silver')
-    rects3 = ax.barh(y, p3_only, height, left=p1_only + p2_only, label='3着率', color='peru')
+    fig = go.Figure()
 
-    ax.set_xlabel('確率')
-    ax.set_title(f'第{rno}レース：各艇の着順確率予測')
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels)
-    ax.invert_yaxis()  # 1号艇を一番上にするための反転処理
-    ax.legend(loc='upper right')
-    ax.set_xlim(0, 1.1)
+    # 1着率のバー
+    fig.add_trace(go.Bar(
+        y=labels, x=p1_only, name='1着率', orientation='h',
+        marker=dict(color='#FFD700')  # ゴールド
+    ))
+    # 2着率のバー
+    fig.add_trace(go.Bar(
+        y=labels, x=p2_only, name='2着率', orientation='h',
+        marker=dict(color='#C0C0C0')  # シルバー
+    ))
+    # 3着率のバー
+    fig.add_trace(go.Bar(
+        y=labels, x=p3_only, name='3着率', orientation='h',
+        marker=dict(color='#CD7F32')  # ブロンズ（ペルー）
+    ))
 
-    # 棒グラフの右端に「3連対率（トータル）」の数値を表示
+    # 3連対率（トータル）の数値をグラフの右端に表示するための設定
+    annotations = []
     for i in range(len(labels)):
         total_val = p_top3[i]
         if total_val > 0:
-            ax.text(total_val + 0.01, y[i], f'{total_val:.2f}', va='center', fontsize=10, fontweight='bold')
-            
-        # 1着率のバーの中央に1着率の数値を表示（スペースがある場合）
-        if p1_only[i] > 0.05:
-            ax.text(p1_only[i] / 2, y[i], f'{p1_only[i]:.2f}', va='center', ha='center', fontsize=9, color='black')
+            annotations.append(dict(
+                x=total_val + 0.01, 
+                y=labels[i],
+                text=f'{total_val:.2f}', # 3連対率の数字のみ表示
+                font=dict(size=14, color="black"),
+                showarrow=False,
+                xanchor='left',
+                yanchor='middle'
+            ))
 
-    plt.tight_layout()
-    st.pyplot(fig)
+    # レイアウトの設定
+    fig.update_layout(
+        barmode='stack',
+        title=f'第{rno}レース：各艇の着順確率予測',
+        xaxis_title='確率',
+        yaxis=dict(autorange="reversed"), # 1号艇を一番上にする
+        xaxis=dict(range=[0, 1.1]),
+        annotations=annotations,
+        margin=dict(l=50, r=50, t=50, b=50),
+        height=400
+    )
+
+    # StreamlitにPlotlyグラフを描画（幅を自動調整）
+    st.plotly_chart(fig, use_container_width=True)
 
 def predict_single_race(hd_input, rno):
     try:
@@ -229,13 +245,13 @@ def predict_single_race(hd_input, rno):
 
         predicted_cat = gate_model.predict(X_gate)[0]
 
-        # ======= レイヤウト変更点 1: レース荒れ具合 =======
+        # 【レース荒れ具合】
         st.markdown("### 【レース荒れ具合】")
         if predicted_cat in ['穴', '大穴']:
             st.warning(f"荒れる可能性が高い（AI予測カテゴリ: **{predicted_cat}**）ため、予想対象外とします。")
             return
         else:
-            st.success(f"**{predicted_cat}**")
+            st.text(f"順当/準順当/荒れる可能性が高い（AI予測カテゴリ: {predicted_cat}）")
 
         for col in features:
             if col not in df.columns:
@@ -267,12 +283,12 @@ def predict_single_race(hd_input, rno):
         rating_semi = (p1_semi * 10) + (p2_semi * 7) + (p3_semi * 4)
         total_rating = rating_junto + rating_semi
 
-        # ======= レイヤウト変更点 2: 各艇AI総合レーティング =======
+        # 【各艇AI総合レーティング】
         st.markdown("### 【各艇AI総合レーティング】")
         for w in range(len(total_rating)):
             st.text(f"  {w+1}号艇: {total_rating[w]:.2f} pt")
 
-        # ======= レイヤウト変更点 3: 各艇の着順確率予想 (グラフ) =======
+        # 【各艇の着順確率予想】
         st.markdown("### 【各艇の着順確率予想】")
         plot_probability_chart(prob_1st, prob_top2, prob_top3, rno)
 
@@ -297,24 +313,26 @@ def predict_single_race(hd_input, rno):
         sanrenpuku_results = sorted(sanrenpuku_scores.items(), key=lambda x: x[1], reverse=True)
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
-        # ======= レイヤウト変更点 4: 3連単予想上位5点 =======
+        # 【3連単予想上位5点】
         st.markdown("### 【3連単予想上位5点】")
         for i in range(5):
             r = sanrentan_results[i]
             st.text(f"  {i+1}位: {r[0]}-{r[1]}-{r[2]} (Score: {r[3]*1000:.3f})")
 
-        # ======= レイヤウト変更点 5: 3連複予想 =======
+        # 【3連複予想】
         st.markdown("### 【3連複予想】")
         for i in range(2):
             combo, score = sanrenpuku_results[i]
-            st.success(f"  ★ {combo[0]} = {combo[1]} = {combo[2]} (Score: {score*1000:.3f})")
+            # 緑枠(st.success)から黒文字(st.text)に変更
+            st.text(f"  ★ {combo[0]} = {combo[1]} = {combo[2]} (Score: {score*1000:.3f})")
 
     except Exception as e:
         st.error(f"エラーが発生しました: {e}")
 
 # --- アプリのメイン画面 ---
 if __name__ == "__main__":
-    st.title("競艇 AI予測システム")
+    # タイトルの変更
+    st.title("尼崎ボートレースAI予測システム")
     st.markdown("---")
     
     # ユーザー入力エリア
