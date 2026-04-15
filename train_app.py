@@ -9,12 +9,24 @@ import pickle
 import warnings
 import itertools
 import time
-import plotly.graph_objects as go  # matplotlibからplotlyに変更
+import datetime
+import plotly.graph_objects as go
+
+# インストールした日本語フォントを使うよう指定
+import matplotlib.pyplot as plt
+plt.rcParams['font.family'] = 'Noto Sans CJK JP'
 
 warnings.filterwarnings('ignore')
 
-# 尼崎競艇場の場コード
-JCD = "13"
+# 全国のボートレース場リスト
+RACE_COURSES = {
+    "01": "桐生", "02": "戸田", "03": "江戸川", "04": "平和島", "05": "多摩川",
+    "06": "浜名湖", "07": "蒲郡", "08": "常滑", "09": "津（三重）", "10": "三国（福井）",
+    "11": "びわこ（滋賀）", "12": "住之江（大阪）", "13": "尼崎（兵庫）", "14": "鳴門（徳島）",
+    "15": "丸亀（香川）", "16": "児島（岡山）", "17": "宮島（広島）", "18": "徳山（山口）",
+    "19": "下関（山口）", "20": "若松（福岡）", "21": "芦屋（福岡）", "22": "福岡（福岡）",
+    "23": "唐津（佐賀）", "24": "大村（長崎）"
+}
 
 def normalize_text(text):
     if not text: return ""
@@ -38,10 +50,10 @@ def load_and_preprocess_boatracer():
 
     return boatracer_df
 
-def scrape_target_race_basic(hd, rno):
+def scrape_target_race_basic(hd, rno, jcd):
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-    params = {"rno": str(rno), "jcd": JCD, "hd": hd}
+    params = {"rno": str(rno), "jcd": jcd, "hd": hd}
 
     res_list = session.get("https://www.boatrace.jp/owpc/pc/race/racelist", params=params, timeout=15)
     soup_list = BeautifulSoup(res_list.content, "html.parser")
@@ -92,36 +104,27 @@ def scrape_target_race_basic(hd, rno):
     return racers_info
 
 def plot_probability_chart(p1, p_top2, p_top3, rno):
-    """
-    Plotlyを用いてWebフォント依存の文字化けを防ぎつつ、
-    1着率、2着率、3着率を横向きの積み上げ棒グラフで表現します。
-    """
     labels = [f'{i}号艇' for i in range(1, 7)]
     
-    # 積み上げグラフ用にそれぞれの「単独の確率」を算出
     p1_only = p1
-    p2_only = np.clip(p_top2 - p1, 0.0, 1.0)       # 2着のみの確率
-    p3_only = np.clip(p_top3 - p_top2, 0.0, 1.0)   # 3着のみの確率
+    p2_only = np.clip(p_top2 - p1, 0.0, 1.0)
+    p3_only = np.clip(p_top3 - p_top2, 0.0, 1.0)
 
     fig = go.Figure()
 
-    # 1着率のバー
     fig.add_trace(go.Bar(
         y=labels, x=p1_only, name='1着率', orientation='h',
-        marker=dict(color='#FFD700')  # ゴールド
+        marker=dict(color='#FFD700')
     ))
-    # 2着率のバー
     fig.add_trace(go.Bar(
         y=labels, x=p2_only, name='2着率', orientation='h',
-        marker=dict(color='#C0C0C0')  # シルバー
+        marker=dict(color='#C0C0C0')
     ))
-    # 3着率のバー
     fig.add_trace(go.Bar(
         y=labels, x=p3_only, name='3着率', orientation='h',
-        marker=dict(color='#CD7F32')  # ブロンズ（ペルー）
+        marker=dict(color='#CD7F32')
     ))
 
-    # 3連対率（トータル）の数値をグラフの右端に表示するための設定
     annotations = []
     for i in range(len(labels)):
         total_val = p_top3[i]
@@ -129,29 +132,27 @@ def plot_probability_chart(p1, p_top2, p_top3, rno):
             annotations.append(dict(
                 x=total_val + 0.01, 
                 y=labels[i],
-                text=f'{total_val:.2f}', # 3連対率の数字のみ表示
+                text=f'{total_val:.2f}',
                 font=dict(size=14, color="black"),
                 showarrow=False,
                 xanchor='left',
                 yanchor='middle'
             ))
 
-    # レイアウトの設定
     fig.update_layout(
         barmode='stack',
         title=f'第{rno}レース：各艇の着順確率予測',
         xaxis_title='確率',
-        yaxis=dict(autorange="reversed"), # 1号艇を一番上にする
+        yaxis=dict(autorange="reversed"),
         xaxis=dict(range=[0, 1.1]),
         annotations=annotations,
         margin=dict(l=50, r=50, t=50, b=50),
         height=400
     )
 
-    # StreamlitにPlotlyグラフを描画（幅を自動調整）
     st.plotly_chart(fig, use_container_width=True)
 
-def predict_single_race(hd_input, rno):
+def predict_single_race(hd_input, rno, jcd):
     try:
         features = pickle.load(open("./model_features.pkl", "rb"))
         gate_model = pickle.load(open("./model_gatekeeper.pkl", "rb"))
@@ -172,10 +173,10 @@ def predict_single_race(hd_input, rno):
         st.error(f"モデルのロードエラーが発生しました: {e}\n\nCSVファイルとPKLファイルが全て同じフォルダにアップロードされているか確認してください。")
         return
 
-    st.subheader(f"▼▼ {hd_input} 第{rno}レース 予測結果 ▼▼")
+    st.subheader(f"▼▼ {hd_input} {RACE_COURSES[jcd]} 第{rno}レース 予測結果 ▼▼")
 
     try:
-        r_info = scrape_target_race_basic(hd_input, rno)
+        r_info = scrape_target_race_basic(hd_input, rno, jcd)
         if not r_info:
             st.error("データが取得できませんでした。日程やレース番号を確認してください。")
             return
@@ -245,7 +246,6 @@ def predict_single_race(hd_input, rno):
 
         predicted_cat = gate_model.predict(X_gate)[0]
 
-        # 【レース荒れ具合】
         st.markdown("### 【レース荒れ具合】")
         if predicted_cat in ['穴', '大穴']:
             st.warning(f"荒れる可能性が高い（AI予測カテゴリ: **{predicted_cat}**）ため、予想対象外とします。")
@@ -283,12 +283,10 @@ def predict_single_race(hd_input, rno):
         rating_semi = (p1_semi * 10) + (p2_semi * 7) + (p3_semi * 4)
         total_rating = rating_junto + rating_semi
 
-        # 【各艇AI総合レーティング】
         st.markdown("### 【各艇AI総合レーティング】")
         for w in range(len(total_rating)):
             st.text(f"  {w+1}号艇: {total_rating[w]:.2f} pt")
 
-        # 【各艇の着順確率予想】
         st.markdown("### 【各艇の着順確率予想】")
         plot_probability_chart(prob_1st, prob_top2, prob_top3, rno)
 
@@ -313,17 +311,14 @@ def predict_single_race(hd_input, rno):
         sanrenpuku_results = sorted(sanrenpuku_scores.items(), key=lambda x: x[1], reverse=True)
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
-        # 【3連単予想上位5点】
         st.markdown("### 【3連単予想上位5点】")
         for i in range(5):
             r = sanrentan_results[i]
             st.text(f"  {i+1}位: {r[0]}-{r[1]}-{r[2]} (Score: {r[3]*1000:.3f})")
 
-        # 【3連複予想】
         st.markdown("### 【3連複予想】")
         for i in range(2):
             combo, score = sanrenpuku_results[i]
-            # 緑枠(st.success)から黒文字(st.text)に変更
             st.text(f"  ★ {combo[0]} = {combo[1]} = {combo[2]} (Score: {score*1000:.3f})")
 
     except Exception as e:
@@ -331,17 +326,32 @@ def predict_single_race(hd_input, rno):
 
 # --- アプリのメイン画面 ---
 if __name__ == "__main__":
-    # タイトルの変更
-    st.title("尼崎ボートレースAI予測システム")
+    st.title("ボートレース予測システム")
     st.markdown("---")
     
-    # ユーザー入力エリア
-    col1, col2 = st.columns(2)
+    # ユーザー入力エリアを3列に分割して配置
+    col1, col2, col3 = st.columns(3)
+    
     with col1:
-        input_hd = st.text_input("対象の日程 (例: 20260415)", value="20260415")
+        # 日程選択UI (カレンダー形式)
+        today = datetime.date.today()
+        selected_date = st.date_input("📅 対象の日程", today)
+        input_hd = selected_date.strftime("%Y%m%d")
+        
     with col2:
-        input_rno = st.number_input("対象のレース番号", min_value=1, max_value=12, value=1)
+        # ボートレース場選択UI (プルダウン)
+        course_options = [f"{code} {name}" for code, name in RACE_COURSES.items()]
+        # デフォルトを尼崎(13)にするためにindexを指定
+        selected_course = st.selectbox("📍 ボートレース場", course_options, index=12)
+        # 選択された文字列の先頭2文字(コード)を抽出
+        input_jcd = selected_course[:2]
+        
+    with col3:
+        # レース番号選択UI (プルダウン)
+        input_rno = st.selectbox("🚤 レース番号", list(range(1, 13)), index=0)
 
-    if st.button("予測を開始する", type="primary"):
+    st.markdown("<br>", unsafe_allow_html=True) # 少し余白を空ける
+
+    if st.button("予測を開始する", type="primary", use_container_width=True):
         with st.spinner("データ取得およびAIによる予測を実行中..."):
-            predict_single_race(input_hd, int(input_rno))
+            predict_single_race(input_hd, int(input_rno), input_jcd)
