@@ -82,8 +82,17 @@ def scrape_target_race_basic(hd, rno, jcd):
             f_match = re.search(r'F\s*([0-9])', tbody_text)
             f_count = int(f_match.group(1)) if f_match else 0
 
+            # 選手名のスクレイピングを追加
+            name_node = tbody.select_one("a[href*='/owpc/pc/data/racer']")
+            if name_node:
+                racer_name = normalize_text(name_node.get_text())
+            else:
+                name_node_fallback = tbody.select_one(".is-fs18")
+                racer_name = normalize_text(name_node_fallback.get_text()) if name_node_fallback else "不明"
+
             racers_info[waku] = {
                 "登録番号": int(reg_match.group()),
+                "選手名": racer_name,  # 選手名を追加
                 "全国勝率": nat[0],
                 "全国3連": nat[2],
                 "モーター3連": mot[2],
@@ -285,7 +294,10 @@ def predict_single_race(hd_input, rno, jcd):
 
         st.markdown("### 【各艇AI総合レーティング】")
         for w in range(len(total_rating)):
-            st.text(f"  {w+1}号艇: {total_rating[w]:.2f} pt")
+            waku = int(df.iloc[w]['枠番'])
+            # dfに保存された選手名を取得
+            racer_name = df.iloc[w]['選手名'] if '選手名' in df.columns else ""
+            st.text(f"  {waku}号艇 {racer_name} : {total_rating[w]:.2f} pt")
 
         st.markdown("### 【各艇の着順確率予想】")
         plot_probability_chart(prob_1st, prob_top2, prob_top3, rno)
