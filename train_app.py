@@ -1,4 +1,4 @@
-!pip install japanize-matplotlib
+import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
@@ -10,7 +10,7 @@ import warnings
 import itertools
 import time
 import matplotlib.pyplot as plt
-import japanize_matplotlib  # グラフの日本語表示用
+import japanize_matplotlib  # requirements.txtでインストールされるため、importするだけでOKです
 
 warnings.filterwarnings('ignore')
 
@@ -22,7 +22,8 @@ def normalize_text(text):
     return unicodedata.normalize('NFKC', text).replace(" ", "").replace("　", "").strip()
 
 def load_and_preprocess_boatracer():
-    boatracer_df = pd.read_csv("/content/drive/MyDrive/boatracer.data.csv", header=1)
+    # パスをローカルに変更
+    boatracer_df = pd.read_csv("./boatracer.data.csv", header=1)
     def clean_pct(val):
         if pd.isna(val): return np.nan
         val_str = str(val).replace('%', '').strip()
@@ -93,14 +94,12 @@ def scrape_target_race_basic(hd, rno):
     return racers_info
 
 def plot_probability_chart(p1, p_top2, p_top3, rno):
-    """各確率を棒グラフでプロットする関数"""
     labels = [f'{i}号艇' for i in range(1, 7)]
     x = np.arange(len(labels))
-    width = 0.25  # 棒の幅
+    width = 0.25 
 
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    # グラフの描画
     rects1 = ax.bar(x - width, p1, width, label='1着率', color='gold')
     rects2 = ax.bar(x, p_top2, width, label='2着以内率', color='silver')
     rects3 = ax.bar(x + width, p_top3, width, label='3着以内率', color='peru')
@@ -112,14 +111,13 @@ def plot_probability_chart(p1, p_top2, p_top3, rno):
     ax.legend(loc='upper right')
     ax.set_ylim(0, 1.1)
 
-    # 棒の上に数値を表示
     def autolabel(rects):
         for rect in rects:
             height = rect.get_height()
             if height > 0:
                 ax.annotate(f'{height:.2f}',
                             xy=(rect.get_x() + rect.get_width() / 2, height),
-                            xytext=(0, 3),  # 3ポイント上のオフセット
+                            xytext=(0, 3), 
                             textcoords="offset points",
                             ha='center', va='bottom', fontsize=9)
 
@@ -128,36 +126,37 @@ def plot_probability_chart(p1, p_top2, p_top3, rno):
     autolabel(rects3)
 
     plt.tight_layout()
-    plt.show()
+    # Streamlit用にグラフを出力
+    st.pyplot(fig)
 
 def predict_single_race(hd_input, rno):
-    print("モデルとデータをロード中...")
     try:
-        features = pickle.load(open("/content/drive/MyDrive/model_features.pkl", "rb"))
-        gate_model = pickle.load(open("/content/drive/MyDrive/model_gatekeeper.pkl", "rb"))
-        gate_features = pickle.load(open("/content/drive/MyDrive/model_gate_features.pkl", "rb"))
+        # パスをローカルに変更
+        features = pickle.load(open("./model_features.pkl", "rb"))
+        gate_model = pickle.load(open("./model_gatekeeper.pkl", "rb"))
+        gate_features = pickle.load(open("./model_gate_features.pkl", "rb"))
 
         expert_models = {}
         for cat in ['順当', '準順当']:
             expert_models[cat] = {
-                '1st': pickle.load(open(f"/content/drive/MyDrive/model_1st_{cat}.pkl", "rb")),
-                '2nd': pickle.load(open(f"/content/drive/MyDrive/model_2nd_{cat}.pkl", "rb")),
-                'top3': pickle.load(open(f"/content/drive/MyDrive/model_top3_{cat}.pkl", "rb"))
+                '1st': pickle.load(open(f"./model_1st_{cat}.pkl", "rb")),
+                '2nd': pickle.load(open(f"./model_2nd_{cat}.pkl", "rb")),
+                'top3': pickle.load(open(f"./model_top3_{cat}.pkl", "rb"))
             }
 
-        race_df_hist = pd.read_csv("/content/drive/MyDrive/race.data.csv", header=1)
+        race_df_hist = pd.read_csv("./race.data.csv", header=1)
         boatracer_df = load_and_preprocess_boatracer()
 
     except Exception as e:
-        print(f"ロードエラー: {e}")
+        st.error(f"モデルのロードエラーが発生しました: {e}\n\nCSVファイルとPKLファイルが全て同じフォルダにアップロードされているか確認してください。")
         return
 
-    print(f"\n▼▼ {hd_input} 第{rno}レース 予測開始 ▼▼")
+    st.subheader(f"▼▼ {hd_input} 第{rno}レース 予測結果 ▼▼")
 
     try:
         r_info = scrape_target_race_basic(hd_input, rno)
         if not r_info:
-            print("  データが取得できませんでした。日程やレース番号を確認してください。")
+            st.error("データが取得できませんでした。日程やレース番号を確認してください。")
             return
 
         df = pd.DataFrame.from_dict(r_info, orient='index').reset_index().rename(columns={'index': '枠番'})
@@ -226,7 +225,7 @@ def predict_single_race(hd_input, rno):
         predicted_cat = gate_model.predict(X_gate)[0]
 
         if predicted_cat in ['穴', '大穴']:
-            print(f"  => 荒れる可能性が高い（予測: {predicted_cat}）ため、予想対象外とします。")
+            st.warning(f"荒れる可能性が高い（AI予測カテゴリ: **{predicted_cat}**）ため、予想対象外とします。")
             return
 
         for col in features:
@@ -236,7 +235,6 @@ def predict_single_race(hd_input, rno):
 
         X_pred = df[features]
 
-        # --- モデルから確率を取得 ---
         p1_junto = expert_models['順当']['1st'].predict_proba(X_pred)[:, 1]
         p2_junto = expert_models['順当']['2nd'].predict_proba(X_pred)[:, 1]
         p_top3_junto = expert_models['順当']['top3'].predict_proba(X_pred)[:, 1]
@@ -245,34 +243,27 @@ def predict_single_race(hd_input, rno):
         p2_semi = expert_models['準順当']['2nd'].predict_proba(X_pred)[:, 1]
         p_top3_semi = expert_models['準順当']['top3'].predict_proba(X_pred)[:, 1]
 
-        # --- グラフ表示用の確率計算（順当・準順当の平均を採用し、理論上の上限1.0を超えないようクリップ） ---
         p1_mean = np.clip((p1_junto + p1_semi) / 2, 0.0, 1.0)
         p2_mean = np.clip((p2_junto + p2_semi) / 2, 0.0, 1.0)
         p_top3_mean = np.clip((p_top3_junto + p_top3_semi) / 2, 0.0, 1.0)
         
-        # 1着率、2着以内率(1着率+2着率)、3着以内率の算出
         prob_1st = p1_mean
         prob_top2 = np.clip(p1_mean + p2_mean, 0.0, 1.0)
         prob_top3 = p_top3_mean
 
-        # グラフの描画呼び出し
         plot_probability_chart(prob_1st, prob_top2, prob_top3, rno)
 
-        # 3着のみの確率（3着以内 - 1着 - 2着）。マイナス値は0にクリップ
         p3_junto = np.clip(p_top3_junto - (p1_junto + p2_junto), 0.0, 1.0)
         p3_semi = np.clip(p_top3_semi - (p1_semi + p2_semi), 0.0, 1.0)
 
-        # --- 選手ごとの総合レーティング（期待値）の算出 ---
         rating_junto = (p1_junto * 10) + (p2_junto * 7) + (p3_junto * 4)
         rating_semi = (p1_semi * 10) + (p2_semi * 7) + (p3_semi * 4)
         total_rating = rating_junto + rating_semi
 
-        print(f"  < AI総合レーティング (予測カテゴリ: {predicted_cat}) >")
+        st.markdown(f"### AI総合レーティング (予測カテゴリ: {predicted_cat})")
         for w in range(len(total_rating)):
-            print(f"    {w+1}号艇: {total_rating[w]:.2f} pt")
-        print("")
+            st.text(f"  {w+1}号艇: {total_rating[w]:.2f} pt")
 
-        # --- 3連単・3連複の評価 ---
         sanrentan_results = []
         for perm in itertools.permutations(range(1, 7), 3):
             b1, b2, b3 = perm
@@ -294,30 +285,31 @@ def predict_single_race(hd_input, rno):
         sanrenpuku_results = sorted(sanrenpuku_scores.items(), key=lambda x: x[1], reverse=True)
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
-        print(f"  < 3連単 総合予想スコア上位5点 >")
+        st.markdown("### 3連単 総合予想スコア上位5点")
         for i in range(5):
             r = sanrentan_results[i]
-            print(f"    {i+1}位: {r[0]}-{r[1]}-{r[2]} (Score: {r[3]*1000:.3f})")
+            st.text(f"  {i+1}位: {r[0]}-{r[1]}-{r[2]} (Score: {r[3]*1000:.3f})")
 
-        print("\n  【厳選3連複予想】")
+        st.markdown("### 厳選3連複予想")
         for i in range(2):
             combo, score = sanrenpuku_results[i]
-            print(f"    ★ {combo[0]} = {combo[1]} = {combo[2]} (3連複Score: {score*1000:.3f})")
+            st.success(f"  ★ {combo[0]} = {combo[1]} = {combo[2]} (3連複Score: {score*1000:.3f})")
 
     except Exception as e:
-        print(f"  エラー: {e}")
+        st.error(f"エラーが発生しました: {e}")
 
+# --- アプリのメイン画面 ---
 if __name__ == "__main__":
-    print("競艇 AI予測システム")
-    print("-" * 30)
-    input_hd = input("対象の日程を入力してください (例: 20260415) > ")
-    input_rno = input("対象のレース番号を入力してください (1-12) > ")
+    st.title("競艇 AI予測システム")
+    st.markdown("---")
+    
+    # ユーザー入力エリア
+    col1, col2 = st.columns(2)
+    with col1:
+        input_hd = st.text_input("対象の日程 (例: 20260415)", value="20260415")
+    with col2:
+        input_rno = st.number_input("対象のレース番号", min_value=1, max_value=12, value=1)
 
-    try:
-        rno_int = int(input_rno)
-        if 1 <= rno_int <= 12:
-            predict_single_race(input_hd, rno_int)
-        else:
-            print("レース番号は1から12の間で入力してください。")
-    except ValueError:
-        print("エラー: レース番号には数値を入力してください。")
+    if st.button("予測を開始する", type="primary"):
+        with st.spinner("データ取得およびAIによる予測を実行中..."):
+            predict_single_race(input_hd, int(input_rno))
