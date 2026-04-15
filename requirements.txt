@@ -1,5 +1,8 @@
 streamlit
 pandas
-scikit-learn
-beautifulsoup4
+numpy
 requests
+beautifulsoup4
+scikit-learn
+matplotlib
+japanize-matplotlib
