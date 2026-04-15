@@ -10,7 +10,11 @@ import warnings
 import itertools
 import time
 import matplotlib.pyplot as plt
-import japanize_matplotlib  # requirements.txtでインストールされるため、importするだけでOKです
+import matplotlib.pyplot as plt
+# import japanize_matplotlib  <-- この行を削除します
+
+# 代わりに以下の1行を追加して、インストールしたフォントを使うよう指定します
+plt.rcParams['font.family'] = 'Noto Sans CJK JP'
 
 warnings.filterwarnings('ignore')
 
