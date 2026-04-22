@@ -8,13 +8,8 @@ import unicodedata
 import pickle
 import warnings
 import itertools
-import time
 import datetime
 import plotly.graph_objects as go
-
-# インストールした日本語フォントを使うよう指定
-import matplotlib.pyplot as plt
-plt.rcParams['font.family'] = 'Noto Sans CJK JP'
 
 warnings.filterwarnings('ignore')
 
@@ -41,12 +36,30 @@ def load_and_preprocess_boatracer():
         try: return float(val_str)
         except ValueError: return np.nan
 
-    pct_cols = ['3連対率(%)', '1着率(%)', '2着率(%)', '3着率(%)']
+    pct_cols = ['2連対率(%)', '3連対率(%)', '1着率(%)', '2着率(%)', '3着率(%)']
     for col in pct_cols:
-        boatracer_df[col] = boatracer_df[col].apply(clean_pct)
+        if col in boatracer_df.columns:
+            boatracer_df[col] = boatracer_df[col].apply(clean_pct)
 
-    boatracer_df['平均ST'] = pd.to_numeric(boatracer_df['平均ST'], errors='coerce').fillna(0.17)
     boatracer_df['コース'] = pd.to_numeric(boatracer_df['コース'], errors='coerce')
+
+    # コース実績の欠損値を補完
+    for col in pct_cols:
+        if col not in boatracer_df.columns:
+            continue
+        valid_df = boatracer_df[boatracer_df[col].notna()]
+        if not valid_df.empty:
+            idx_max_course = valid_df.groupby('登録番号')['コース'].idxmax()
+            ref_data = boatracer_df.loc[idx_max_course, ['登録番号', 'コース', col]]
+            ref_data = ref_data.rename(columns={'コース': 'ref_course', col: 'ref_val'})
+            temp_df = boatracer_df.merge(ref_data, on='登録番号', how='left')
+            missing_mask = boatracer_df[col].isna() & temp_df['ref_val'].notna()
+            imputed_vals = temp_df.loc[missing_mask, 'ref_val'] * temp_df.loc[missing_mask, 'ref_course'] / boatracer_df.loc[missing_mask, 'コース']
+            boatracer_df.loc[missing_mask, col] = imputed_vals.clip(upper=100.0)
+
+    if '2連対率(%)' in boatracer_df.columns: boatracer_df['2連対率(%)'] = boatracer_df['2連対率(%)'].fillna(10.0)
+    if '3連対率(%)' in boatracer_df.columns: boatracer_df['3連対率(%)'] = boatracer_df['3連対率(%)'].fillna(20.0)
+    if '1着率(%)' in boatracer_df.columns: boatracer_df['1着率(%)'] = boatracer_df['1着率(%)'].fillna(5.0)
 
     return boatracer_df
 
@@ -55,57 +68,114 @@ def scrape_target_race_basic(hd, rno, jcd):
     session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
     params = {"rno": str(rno), "jcd": jcd, "hd": hd}
 
-    res_list = session.get("https://www.boatrace.jp/owpc/pc/race/racelist", params=params, timeout=15)
-    soup_list = BeautifulSoup(res_list.content, "html.parser")
+    try:
+        # 1. 出走表（racelist）から基礎データと節間成績を取得
+        res_list = session.get("https://www.boatrace.jp/owpc/pc/race/racelist", params=params, timeout=15)
+        res_list.raise_for_status()
+        soup_list = BeautifulSoup(res_list.content, "html.parser")
 
-    def parse_values(td_element):
-        if not td_element: return [np.nan, np.nan, np.nan]
-        raw_texts = td_element.get_text(separator="|").split("|")
-        vals = [float(t.strip().replace('%', '')) for t in raw_texts if re.match(r'^[0-9.]+$', t.strip().replace('%', ''))]
-        while len(vals) < 3: vals.append(np.nan)
-        return vals[:3]
+        racers_info = {}
+        tbodys = soup_list.select("tbody.is-fs12")
 
-    racers_info = {}
-    for tbody in soup_list.select("tbody.is-fs12"):
-        waku_td = tbody.select_one("td[class*='is-boatColor']")
-        if not waku_td: continue
-        waku = int(normalize_text(waku_td.get_text(strip=True)))
-        reg_info = tbody.select_one(".is-fs11").get_text(strip=True)
-        reg_match = re.search(r'\d{4}', reg_info)
+        # 6艇分のデータがない場合は失敗とみなす
+        if len(tbodys) < 6:
+            return None
 
-        if reg_match:
+        for tbody in tbodys[:6]:
+            waku_td = tbody.select_one("td[class*='is-boatColor']")
+            if not waku_td: continue
+            waku = int(normalize_text(waku_td.get_text(strip=True)))
+
+            reg_info = tbody.select_one(".is-fs11").get_text(strip=True)
+            reg_match = re.search(r'\d{4}', reg_info)
+            if not reg_match: continue
+            reg_no = int(reg_match.group())
+
+            # 全国2連・3連の取得
             stats_tds = tbody.select("td.is-lineH2")
-            nat = parse_values(stats_tds[1]) if len(stats_tds) > 1 else [np.nan]*3
-            mot = parse_values(stats_tds[3]) if len(stats_tds) > 3 else [np.nan]*3
+            nat = [np.nan, np.nan, np.nan]
+            if len(stats_tds) > 1:
+                raw_texts = stats_tds[1].get_text(separator="|").split("|")
+                vals = [float(t.strip().replace('%', '')) for t in raw_texts if re.match(r'^[0-9.]+$', t.strip().replace('%', ''))]
+                if len(vals) >= 3: nat = vals[:3]
 
             tbody_text = tbody.get_text(separator=" ", strip=True)
             f_match = re.search(r'F\s*([0-9])', tbody_text)
             f_count = int(f_match.group(1)) if f_match else 0
 
+            # --- 節間成績の解析 ---
+            series_data = []
+            for boat_span in tbody.select('span[class^="is-boatColor"]'):
+                cls_name = [c for c in boat_span.get('class', []) if 'is-boatColor' in c]
+                if not cls_name: continue
+                course_str = cls_name[0].replace('is-boatColor', '')
+                if not course_str.isdigit(): continue
+                course = int(course_str)
+
+                parent = boat_span.parent
+                rank_val = np.nan
+                # 着順の取得
+                rank_a = parent.select_one('a')
+                if rank_a:
+                    t = rank_a.get_text(strip=True)
+                    if t in ['1','2','3','4','5','6']: rank_val = int(t)
+                else:
+                    t = parent.get_text(strip=True).replace(boat_span.get_text(strip=True), '')
+                    m = re.search(r'[1-6]', t)
+                    if m: rank_val = int(m.group(0))
+
+                # STの取得
+                st_val = np.nan
+                st_span = parent.select_one('span.is-fs10')
+                if st_span:
+                    try: st_val = float(st_span.get_text(strip=True))
+                    except: pass
+
+                if not np.isnan(rank_val) or not np.isnan(st_val):
+                    series_data.append({'course': course, 'rank': rank_val, 'st': st_val})
+
+            # コース別の平均着順を計算
+            c1_ranks = [d['rank'] for d in series_data if d['course'] == 1 and not np.isnan(d['rank'])]
+            c123_ranks = [d['rank'] for d in series_data if d['course'] in [1, 2, 3] and not np.isnan(d['rank'])]
+            c456_ranks = [d['rank'] for d in series_data if d['course'] in [4, 5, 6] and not np.isnan(d['rank'])]
+            sts = [d['st'] for d in series_data if not np.isnan(d['st'])]
+
             racers_info[waku] = {
-                "登録番号": int(reg_match.group()),
-                "全国勝率": nat[0],
+                "登録番号": reg_no,
+                "枠番": waku,
+                "全国2連": nat[1],
                 "全国3連": nat[2],
-                "モーター3連": mot[2],
-                "展示タイム": np.nan,
-                "F数": f_count
+                "F数": f_count,
+                "節間_コース1_平均着順": np.mean(c1_ranks) if c1_ranks else np.nan,
+                "節間_コース1,2,3_平均着順": np.mean(c123_ranks) if c123_ranks else np.nan,
+                "節間_コース4,5,6_平均着順": np.mean(c456_ranks) if c456_ranks else np.nan,
+                "節間平均ST": np.mean(sts) if sts else np.nan,
+                "展示タイム": np.nan
             }
 
-    res_before = session.get("https://www.boatrace.jp/owpc/pc/race/beforeinfo", params=params, timeout=15)
-    soup_before = BeautifulSoup(res_before.content, "html.parser")
-    for bt_tbody in soup_before.select("tbody.is-fs12"):
-        tds = bt_tbody.find("tr").find_all("td")
-        if len(tds) >= 5:
-            b_waku = int(normalize_text(tds[0].get_text(strip=True)))
-            if b_waku in racers_info:
-                try: racers_info[b_waku]["展示タイム"] = float(tds[4].get_text(strip=True))
-                except: pass
+        # 2. 直前情報（beforeinfo）から展示タイムを取得
+        res_before = session.get("https://www.boatrace.jp/owpc/pc/race/beforeinfo", params=params, timeout=15)
+        res_before.raise_for_status()
+        soup_before = BeautifulSoup(res_before.content, "html.parser")
+        for bt_tbody in soup_before.select("tbody.is-fs12"):
+            tds = bt_tbody.find("tr").find_all("td")
+            if len(tds) >= 5:
+                b_waku = int(normalize_text(tds[0].get_text(strip=True)))
+                if b_waku in racers_info:
+                    try: racers_info[b_waku]["展示タイム"] = float(tds[4].get_text(strip=True))
+                    except: pass
 
-    return racers_info
+        if len(racers_info) != 6:
+            return None
+
+        return racers_info
+    except Exception as e:
+        return None
 
 def plot_probability_chart(p1, p_top2, p_top3, rno):
     labels = [f'{i}号艇' for i in range(1, 7)]
     
+    # 棒グラフ用に値を分割 (積み上げで元の確率になるよう調整)
     p1_only = p1
     p2_only = np.clip(p_top2 - p1, 0.0, 1.0)
     p3_only = np.clip(p_top3 - p_top2, 0.0, 1.0)
@@ -117,11 +187,11 @@ def plot_probability_chart(p1, p_top2, p_top3, rno):
         marker=dict(color='#FFD700')
     ))
     fig.add_trace(go.Bar(
-        y=labels, x=p2_only, name='2着率', orientation='h',
+        y=labels, x=p2_only, name='2着以内率', orientation='h',
         marker=dict(color='#C0C0C0')
     ))
     fig.add_trace(go.Bar(
-        y=labels, x=p3_only, name='3着率', orientation='h',
+        y=labels, x=p3_only, name='3着以内率', orientation='h',
         marker=dict(color='#CD7F32')
     ))
 
@@ -147,10 +217,31 @@ def plot_probability_chart(p1, p_top2, p_top3, rno):
         xaxis=dict(range=[0, 1.1]),
         annotations=annotations,
         margin=dict(l=50, r=50, t=50, b=50),
-        height=400
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+def get_custom_series_rank(row):
+    try:
+        course = int(row['枠番'])
+        dash_val = row['節間_コース4,5,6_平均着順']
+
+        if course == 1:
+            val = row['節間_コース1_平均着順']
+            if pd.notna(val): return val
+            return dash_val if pd.notna(dash_val) else 5.0
+        elif course in [2, 3]:
+            val = row['節間_コース1,2,3_平均着順']
+            if pd.notna(val): return val
+            return dash_val if pd.notna(dash_val) else 5.0
+        elif course in [4, 5, 6]:
+            return dash_val if pd.notna(dash_val) else 5.0
+        else:
+            return 5.0
+    except:
+        return 5.0
 
 def predict_single_race(hd_input, rno, jcd):
     try:
@@ -166,71 +257,36 @@ def predict_single_race(hd_input, rno, jcd):
                 'top3': pickle.load(open(f"./model_top3_{cat}.pkl", "rb"))
             }
 
-        race_df_hist = pd.read_csv("./race.data.csv", header=1)
         boatracer_df = load_and_preprocess_boatracer()
 
     except Exception as e:
-        st.error(f"モデルのロードエラーが発生しました: {e}\n\nCSVファイルとPKLファイルが全て同じフォルダにアップロードされているか確認してください。")
+        st.error(f"モデルのロードエラーが発生しました: {e}\n\nCSVファイルとPKLファイルが全て同じフォルダに配置されているか確認してください。")
         return
 
     st.subheader(f"▼▼ {hd_input} {RACE_COURSES[jcd]} 第{rno}レース 予測結果 ▼▼")
 
-    try:
-        r_info = scrape_target_race_basic(hd_input, rno, jcd)
-        if not r_info:
-            st.error("データが取得できませんでした。日程やレース番号を確認してください。")
-            return
+    r_info = scrape_target_race_basic(hd_input, rno, jcd)
+    if not r_info:
+        st.error("データが取得できませんでした。日程やレース番号が間違っているか、展示タイムがまだ公開されていない可能性があります。")
+        return
 
-        df = pd.DataFrame.from_dict(r_info, orient='index').reset_index().rename(columns={'index': '枠番'})
+    try:
+        df = pd.DataFrame.from_dict(r_info, orient='index').reset_index(drop=True)
         df['展示タイム'] = df['展示タイム'].fillna(df['展示タイム'].mean() if not df['展示タイム'].isna().all() else 6.80)
 
         df = pd.merge(df, boatracer_df, left_on=['登録番号', '枠番'], right_on=['登録番号', 'コース'], how='left')
         df = df.sort_values('枠番').reset_index(drop=True)
 
-        mock_course_stats = []
-        for idx, row in df.iterrows():
-            reg_num = row['登録番号']
-            waku = int(row['枠番'])
-            hist = race_df_hist[race_df_hist['登録番号'] == reg_num]
-            cols = ['コース1_平均着順', 'コース2_平均着順', 'コース3_平均着順', 'コース4_平均着順', 'コース5_平均着順', 'コース6_平均着順']
+        df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
-            s_rank = 5.0
-            a_rank = 5.0
-
-            if not hist.empty:
-                last_rec = hist.iloc[-1]
-                vals = pd.to_numeric(last_rec[cols], errors='coerce').values
-
-                if waku == 1:
-                    val_c1 = vals[0]
-                    if not np.isnan(val_c1):
-                        s_rank = float(val_c1)
-                    else:
-                        v_vals = [v for v in vals[0:2] if not np.isnan(v)]
-                        if v_vals: s_rank = np.mean(v_vals)
-                elif waku == 6:
-                    v_vals = [v for v in vals[4:6] if not np.isnan(v)]
-                    if v_vals: s_rank = np.mean(v_vals)
-                elif 1 < waku < 6:
-                    v_vals = [v for v in vals[waku-2:waku+1] if not np.isnan(v)]
-                    if v_vals: s_rank = np.mean(v_vals)
-
-                if np.any(~np.isnan(vals)):
-                    a_rank = np.mean([v for v in vals if not np.isnan(v)])
-
-            mock_course_stats.append({'smoothed_course_rank': s_rank, '全コース平均着順': a_rank})
-
-        stats_df = pd.DataFrame(mock_course_stats)
-        df['smoothed_course_rank'] = stats_df['smoothed_course_rank']
-        df['全コース平均着順'] = stats_df['全コース平均着順']
-
-        df['モーター_mean'] = df['モーター3連'].mean()
-        df['モーター_num'] = df['モーター3連'] - df['モーター_mean']
         df['展示タイム_mean'] = df['展示タイム'].mean()
         df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
-        df['平均ST_num'] = df['平均ST'] - df['平均ST'].mean()
 
-        gate_base_cols = ['全国勝率', '3連対率(%)', '1着率(%)', '2着率(%)', '3着率(%)', 'F数', 'smoothed_course_rank']
+        df['節間平均ST'] = df['節間平均ST'].fillna(0.17)
+        df['節間平均ST_mean'] = df['節間平均ST'].mean()
+        df['節間平均ST_num'] = df['節間平均ST'] - df['節間平均ST_mean']
+
+        gate_base_cols = ['全国3連', '全国2連', 'F数', '適性_節間成績', '節間平均ST', '2連対率(%)', '3連対率(%)', '1着率(%)']
         gate_row = {}
         for idx, row in df.iterrows():
             w = int(row['枠番'])
@@ -238,7 +294,6 @@ def predict_single_race(hd_input, rno, jcd):
                 gate_row[f"{w}号艇_{c}"] = row.get(c, np.nan)
 
         X_gate_df = pd.DataFrame([gate_row])
-
         for col in gate_features:
             if col not in X_gate_df.columns:
                 X_gate_df[col] = np.nan
@@ -276,18 +331,19 @@ def predict_single_race(hd_input, rno, jcd):
         prob_top2 = np.clip(p1_mean + p2_mean, 0.0, 1.0)
         prob_top3 = p_top3_mean
 
-        p3_junto = np.clip(p_top3_junto - (p1_junto + p2_junto), 0.0, 1.0)
-        p3_semi = np.clip(p_top3_semi - (p1_semi + p2_semi), 0.0, 1.0)
+        # --- 【修正】総合レーティング（期待値）の計算 ---
+        p_top2_junto = np.clip(p1_junto + p2_junto, 0.0, 1.0)
+        p_top2_semi = np.clip(p1_semi + p2_semi, 0.0, 1.0)
 
-        rating_junto = (p1_junto * 10) + (p2_junto * 7) + (p3_junto * 4)
-        rating_semi = (p1_semi * 10) + (p2_semi * 7) + (p3_semi * 4)
+        # 新しい重み付け：(1着確率 × 4) + (2着以内確率 × 2) + (3着以内確率 × 1)
+        rating_junto = (p1_junto * 4) + (p_top2_junto * 2) + (p_top3_junto * 1)
+        rating_semi = (p1_semi * 4) + (p_top2_semi * 2) + (p_top3_semi * 1)
         total_rating = rating_junto + rating_semi
 
-        # --- 登録番号を表示するように修正 ---
         st.markdown("### 【各艇AI総合レーティング】")
         for w in range(len(total_rating)):
             waku = int(df.iloc[w]['枠番'])
-            reg_num = int(df.iloc[w]['登録番号']) # 登録番号を抽出
+            reg_num = int(df.iloc[w]['登録番号'])
             st.text(f"  {waku}号艇 (登録番号: {reg_num}) : {total_rating[w]:.2f} pt")
 
         st.markdown("### 【各艇の着順確率予想】")
@@ -319,17 +375,17 @@ def predict_single_race(hd_input, rno, jcd):
             r = sanrentan_results[i]
             st.text(f"  {i+1}位: {r[0]}-{r[1]}-{r[2]} (Score: {r[3]*1000:.3f})")
 
-        st.markdown("### 【3連複予想】")
+        st.markdown("### 【厳選3連複予想】")
         for i in range(2):
             combo, score = sanrenpuku_results[i]
             st.text(f"  ★ {combo[0]} = {combo[1]} = {combo[2]} (Score: {score*1000:.3f})")
 
     except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
+        st.error(f"データ処理中にエラーが発生しました: {e}")
 
 # --- アプリのメイン画面 ---
 if __name__ == "__main__":
-    st.title("ボートレース予測システム")
+    st.title("ボートレースAI予測システム")
     st.markdown("---")
     
     # ユーザー入力エリアを3列に分割して配置
@@ -353,7 +409,7 @@ if __name__ == "__main__":
         # レース番号選択UI (プルダウン)
         input_rno = st.selectbox("🚤 レース番号", list(range(1, 13)), index=0)
 
-    st.markdown("<br>", unsafe_allow_html=True) # 少し余白を空ける
+    st.markdown("<br>", unsafe_allow_html=True)
 
     if st.button("予測を開始する", type="primary", use_container_width=True):
         with st.spinner("データ取得およびAIによる予測を実行中..."):
