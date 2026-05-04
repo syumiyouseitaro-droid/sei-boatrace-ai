@@ -190,11 +190,23 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         df = df.sort_values('枠番').reset_index(drop=True)
         df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
-        if df['適性_節間成績'].isna().any() or df['節間平均ST'].isna().any():
-            st.warning("⚠️ 必要な節間データが不足しているため、予測を中止します。")
-            return
+        df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
+        # -------------------------------------------------------------
+        # 【追加】展示タイム、3連対率(%)、1着率(%)、全国勝率の欠損チェック
+        # ※データフレームに列が存在しないエラーを防ぐため、リストで指定して一括判定
+        required_cols = ['適性_節間成績', '節間平均ST', '展示タイム', '3連対率(%)', '1着率(%)', '全国勝率']
+        
+        # 必要な列がそもそも取得できていないか、いずれかの列に欠損(NaN)が含まれているかチェック
+        if any(col not in df.columns for col in required_cols) or df[required_cols].isna().any().any():
+            st.warning("⚠️ 必要なデータ（節間成績、ST、展示タイム、勝率など）が不足しているため、予測を中止します。")
+            return
+        # -------------------------------------------------------------
+
+        # ※欠損値で弾くようになったため、展示タイムのfillna(平均値補完)は不要になりますが、
+        # 念のため残すか、削除しても問題ありません。
         df['展示タイム'] = df['展示タイム'].fillna(df['展示タイム'].mean() if not df['展示タイム'].isna().all() else 6.80)
+        
         df['展示タイム_mean'] = df['展示タイム'].mean()
         df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
         df['節間平均ST_mean'] = df['節間平均ST'].mean()
@@ -238,11 +250,11 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
         # スコア125以上の買い目があるかチェック (スコア表示は res[3]*1000)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.66 and (res[3]*1000) >= 125]
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.66 and (res[3]*1000) >= 240]
         
         if bet_targets:
             st.markdown("### 🔔 【推奨】条件達成！")
-            st.success(f"**1号艇1着確率が66%以上、かつスコアが125以上の買い目があります。積極的に購入を検討してください。**")
+            st.success(f"**1号艇1着確率が66%以上、かつスコアが240以上の買い目があります。予想1〜２位について積極的に購入を検討してください。**")
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
