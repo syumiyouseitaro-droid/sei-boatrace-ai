@@ -22,9 +22,9 @@ BEST_W1 = 1
 BEST_W2 = 1
 BEST_W3 = 1
 
-# モデルファイルが保存されているディレクトリ（GitHubの構成に合わせて変更してください）
-# 今回は app.py と同じ階層にある "models" フォルダの中にファイルがあると仮定します。
-MODEL_DIR = "models"
+# モデルファイルが保存されているディレクトリ
+# app.py と同じ階層にファイルがあるため "."（カレントディレクトリ）を指定
+MODEL_DIR = "."
 
 # ==========================================
 # 関数定義
@@ -93,7 +93,7 @@ def load_models():
         boatracer_df = load_and_preprocess_boatracer()
         return features, boat1_features, expert_models, model_1st_boat, boatracer_df
     except Exception as e:
-        st.error(f"❌ モデルのロードエラー: 指定したディレクトリ({MODEL_DIR})にファイルが存在するか確認してください。\n詳細: {e}")
+        st.error(f"❌ モデルのロードエラー: 指定したファイルが存在するか確認してください。\n詳細: {e}")
         return None
 
 def scrape_target_race_basic(hd, rno, jcd):
@@ -269,7 +269,6 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         
-        # 結果を表形式で見やすく表示
         result_df = pd.DataFrame([
             {"順位": f"{i+1}位", "買い目": f"{res[0]} - {res[1]} - {res[2]}", "スコア": f"{res[3]*1000:.3f}"}
             for i, res in enumerate(sanrentan_results[:5])
