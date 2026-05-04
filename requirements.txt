@@ -1,6 +1,6 @@
-streamlit==1.32.0
+streamlit
 pandas
 numpy
 requests
 beautifulsoup4
-scikit-learn
+scikit-learn==1.2.2
