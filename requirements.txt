@@ -1,8 +1,6 @@
-streamlit
+streamlit==1.32.0
 pandas
 numpy
 requests
 beautifulsoup4
 scikit-learn
-plotly
-matplotlib
