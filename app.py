@@ -250,11 +250,11 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
         # スコア125以上の買い目があるかチェック (スコア表示は res[3]*1000)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.66 and (res[3]*1000) >= 240]
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.98 and (res[3]*1000) >= 240]
         
         if bet_targets:
             st.markdown("### 🔔 【推奨】条件達成！")
-            st.success(f"**1号艇1着確率が66%以上、かつスコアが240以上の買い目があります。予想1〜2位について積極的に購入を検討してください。**")
+            st.success(f"**1号艇1着確率が98%以上、かつスコアが240以上の買い目があります。予想1〜2位について積極的に購入を検討してください。**")
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
