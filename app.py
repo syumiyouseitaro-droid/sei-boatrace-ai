@@ -195,12 +195,35 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         # -------------------------------------------------------------
         # 【追加】展示タイム、3連対率(%)、1着率(%)、全国勝率の欠損チェック
         # ※データフレームに列が存在しないエラーを防ぐため、リストで指定して一括判定
+        # -------------------------------------------------------------
+        # 【追加】展示タイム、3連対率(%)、1着率(%)、全国勝率の欠損チェック
         required_cols = ['適性_節間成績', '節間平均ST', '展示タイム', '3連対率(%)', '1着率(%)', '全国勝率']
         
-        # 必要な列がそもそも取得できていないか、いずれかの列に欠損(NaN)が含まれているかチェック
-        if any(col not in df.columns for col in required_cols) or df[required_cols].isna().any().any():
-            st.warning("⚠️ 必要なデータ（節間成績、ST、展示タイム、勝率など）が不足しているため、予測を中止します。")
+        missing_details = []
+
+        # 1. 必要な列がそもそもデータフレームに存在しない場合
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            missing_details.append(f"取得できなかった項目: {', '.join(missing_cols)}")
+
+        # 2. 列は存在するが、一部の艇（枠番）に欠損値(NaN)が含まれている場合
+        existing_cols = [col for col in required_cols if col in df.columns]
+        if existing_cols:
+            na_cols = df[existing_cols].columns[df[existing_cols].isna().any()].tolist()
+            if na_cols:
+                for col in na_cols:
+                    # 欠損している枠番を特定
+                    missing_wakubans = df[df[col].isna()]['枠番'].tolist()
+                    wakuban_str = ', '.join(f"{w}号艇" for w in missing_wakubans)
+                    missing_details.append(f"欠損データあり: 【{col}】 (該当: {wakuban_str})")
+
+        # 不足データがある場合、詳細を表示して処理を中断
+        if missing_details:
+            st.warning("⚠️ 必要なデータが不足しているため、予測を中止します。")
+            for detail in missing_details:
+                st.error(f"・{detail}")
             return
+        # -------------------------------------------------------------
         # -------------------------------------------------------------
 
         # ※欠損値で弾くようになったため、展示タイムのfillna(平均値補完)は不要になりますが、
