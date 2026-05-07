@@ -339,7 +339,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         
         if bet_targets:
             st.markdown("### 🔔 【鉄板推奨】条件達成！")
-            st.success("**1号艇1着確率が95%以上、かつスコアが240以上の買い目があります。予想上位について厚めでの購入を検討してください。**")
+            st.success("**1号艇1着確率が95%以上、かつスコアが240以上の買い目があります。予想上位について購入してください。**")
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
