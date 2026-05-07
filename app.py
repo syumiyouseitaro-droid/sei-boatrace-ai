@@ -74,8 +74,6 @@ def load_and_preprocess_boatracer():
 @st.cache_resource(show_spinner="AIモデルを読み込み中...")
 def load_models():
     try:
-        features = pickle.load(open(os.path.join(MODEL_DIR, "model_features.pkl"), "rb"))
-        boat1_features = pickle.load(open(os.path.join(MODEL_DIR, "model_boat1_features.pkl"), "rb"))
         expert_models = {
             '1st': pickle.load(open(os.path.join(MODEL_DIR, "model_1st.pkl"), "rb")),
             '2nd': pickle.load(open(os.path.join(MODEL_DIR, "model_2nd.pkl"), "rb")),
@@ -83,7 +81,7 @@ def load_models():
         }
         model_1st_boat = pickle.load(open(os.path.join(MODEL_DIR, "model_1st_boat_win.pkl"), "rb"))
         boatracer_df = load_and_preprocess_boatracer()
-        return features, boat1_features, expert_models, model_1st_boat, boatracer_df
+        return expert_models, model_1st_boat, boatracer_df
     except Exception as e:
         st.error(f"❌ モデルのロードエラー: {e}")
         return None
@@ -155,22 +153,41 @@ def scrape_target_race_basic(hd, rno, jcd):
         return racers_info
     except: return None
 
+# 【変更】より精度の高い適性_節間成績の算出ロジック
 def get_custom_series_rank(row):
     try:
         course = int(row['枠番'])
-        dash_val = row['節間_ダッシュ成績']
+        course1_val = row.get('節間_コース1_平均着順', np.nan)
+        slow_val = row.get('節間_スロー成績', np.nan)
+        dash_val = row.get('節間_ダッシュ成績', np.nan)
+        mean_val = row.get('節間_平均着順', np.nan)
+
         if course == 1:
-            val = row['節間_コース1_平均着順']
-            return val if pd.notna(val) else (dash_val if pd.notna(dash_val) else np.nan)
+            if pd.notna(course1_val): return course1_val
+            if pd.notna(slow_val): return slow_val
+            return mean_val
         elif course in [2, 3]:
-            val = row['節間_スロー成績']
-            return val if pd.notna(val) else (dash_val if pd.notna(dash_val) else np.nan)
+            if pd.notna(slow_val): return slow_val
+            if pd.notna(dash_val): return dash_val
+            return mean_val
+        elif course in [4, 5, 6]:
+            if pd.notna(dash_val): return dash_val
+            return 5.0
         else:
-            return dash_val if pd.notna(dash_val) else np.nan
-    except: return np.nan
+            return np.nan
+    except:
+        return np.nan
 
 def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
-    features, boat1_features, expert_models, model_1st_boat, boatracer_df = loaded_data
+    expert_models, model_1st_boat, boatracer_df = loaded_data
+    
+    # 【変更】特徴量をコード内で明示的に再定義し、検証環境と統一
+    boat1_features = ['1着率(%)', '全国勝率_num', '適性_節間成績']
+    features = [
+        '適性_節間成績', '節間平均ST_num', '展示タイム_diff',
+        '全国勝率_num', '3連対率(%)', '1着率(%)'
+    ]
+
     st.markdown(f"### ▼▼ {hd_input} 第{rno}R ({jcd_name}) AI予測 ▼▼")
 
     with st.spinner("出走表データを取得中..."):
@@ -188,34 +205,40 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
             df = pd.merge(df, boatracer_df, left_on=['登録番号', '枠番'], right_on=['登録番号', 'コース'], how='left')
 
         df = df.sort_values('枠番').reset_index(drop=True)
-        df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
-
-        df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
-
-        # -------------------------------------------------------------
-        # 【追加】展示タイム、3連対率(%)、1着率(%)、全国勝率の欠損チェック
-        # ※データフレームに列が存在しないエラーを防ぐため、リストで指定して一括判定
-        # -------------------------------------------------------------
-        # 【追加】展示タイム、3連対率(%)、1着率(%)、全国勝率の欠損チェック
-        required_cols = ['適性_節間成績', '節間平均ST', '展示タイム', '3連対率(%)', '1着率(%)', '全国勝率']
         
+        # 独自の優先順位で 適性_節間成績 を計算
+        df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
+
+        # 【変更】平均値との差分を先に計算する (欠損値チェックをより正確に行うため)
+        df['展示タイム_mean'] = df['展示タイム'].mean()
+        df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
+        
+        df['節間平均ST_mean'] = df['節間平均ST'].mean()
+        df['節間平均ST_num'] = df['節間平均ST'] - df['節間平均ST_mean']
+        
+        df['全国勝率_mean'] = df['全国勝率'].mean()
+        df['全国勝率_num'] = df['全国勝率'] - df['全国勝率_mean']
+
+        # 【変更】厳密な欠損値チェック
+        required_cols_for_skip = [
+            '適性_節間成績', '節間平均ST_num', '展示タイム_diff',
+            '全国勝率_num', '3連対率(%)', '1着率(%)'
+        ]
+
         missing_details = []
 
         # 1. 必要な列がそもそもデータフレームに存在しない場合
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            missing_details.append(f"取得できなかった項目: {', '.join(missing_cols)}")
+        for col in required_cols_for_skip:
+            if col not in df.columns:
+                df[col] = np.nan
 
         # 2. 列は存在するが、一部の艇（枠番）に欠損値(NaN)が含まれている場合
-        existing_cols = [col for col in required_cols if col in df.columns]
-        if existing_cols:
-            na_cols = df[existing_cols].columns[df[existing_cols].isna().any()].tolist()
-            if na_cols:
-                for col in na_cols:
-                    # 欠損している枠番を特定
-                    missing_wakubans = df[df[col].isna()]['枠番'].tolist()
-                    wakuban_str = ', '.join(f"{w}号艇" for w in missing_wakubans)
-                    missing_details.append(f"欠損データあり: 【{col}】 (該当: {wakuban_str})")
+        missing_cols = [col for col in required_cols_for_skip if df[col].isna().any()]
+        if missing_cols:
+            for col in missing_cols:
+                missing_wakubans = df[df[col].isna()]['枠番'].tolist()
+                wakuban_str = ', '.join(f"{w}号艇" for w in missing_wakubans)
+                missing_details.append(f"欠損データあり: 【{col}】 (該当: {wakuban_str})")
 
         # 不足データがある場合、詳細を表示して処理を中断
         if missing_details:
@@ -223,30 +246,19 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
             for detail in missing_details:
                 st.error(f"・{detail}")
             return
-        # -------------------------------------------------------------
-        # -------------------------------------------------------------
 
-        # ※欠損値で弾くようになったため、展示タイムのfillna(平均値補完)は不要になりますが、
-        # 念のため残すか、削除しても問題ありません。
-        df['展示タイム'] = df['展示タイム'].fillna(df['展示タイム'].mean() if not df['展示タイム'].isna().all() else 6.80)
-        
-        df['展示タイム_mean'] = df['展示タイム'].mean()
-        df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
-        df['節間平均ST_mean'] = df['節間平均ST'].mean()
-        df['節間平均ST_num'] = df['節間平均ST'] - df['節間平均ST_mean']
-        df['全国勝率_mean'] = df['全国勝率'].mean()
-        df['全国勝率_num'] = df['全国勝率'] - df['全国勝率_mean']
-        if '節間_平均着順' not in df.columns: df['節間_平均着順'] = np.nan
+        # データの型変換を保証
+        for col in features:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
+        # 1号艇1着確率の算出
         X_boat1 = df[df['枠番'] == 1][boat1_features]
         boat1_win_prob = model_1st_boat.predict_proba(X_boat1)[0][1]
 
         # 1号艇1着確率の閾値設定
         THRESHOLD = 0.66
-        for col in features:
-            if col not in df.columns: df[col] = np.nan
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
+        
+        # エキスパート予測用データ
         X_pred = df[features]
         p1 = expert_models['1st'].predict_proba(X_pred)[:, 1]
         p2 = expert_models['2nd'].predict_proba(X_pred)[:, 1]
