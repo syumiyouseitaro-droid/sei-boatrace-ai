@@ -153,7 +153,6 @@ def scrape_target_race_basic(hd, rno, jcd):
         return racers_info
     except: return None
 
-# 【変更】より精度の高い適性_節間成績の算出ロジック
 def get_custom_series_rank(row):
     try:
         course = int(row['枠番'])
@@ -181,7 +180,6 @@ def get_custom_series_rank(row):
 def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
     expert_models, model_1st_boat, boatracer_df = loaded_data
     
-    # 【変更】特徴量をコード内で明示的に再定義し、検証環境と統一
     boat1_features = ['1着率(%)', '全国勝率_num', '適性_節間成績']
     features = [
         '適性_節間成績', '節間平均ST_num', '展示タイム_diff',
@@ -209,7 +207,28 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         # 独自の優先順位で 適性_節間成績 を計算
         df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
-        # 【変更】平均値との差分を先に計算する (欠損値チェックをより正確に行うため)
+        # -------------------------------------------------------------
+        # 【追加】6号艇の欠損値特別補完処理
+        # -------------------------------------------------------------
+        imputed_messages = []
+        idx_6 = df[df['枠番'] == 6].index
+        
+        if not idx_6.empty:
+            i = idx_6[0]
+            if '3連対率(%)' in df.columns and pd.isna(df.at[i, '3連対率(%)']):
+                df.at[i, '3連対率(%)'] = 10.0
+                imputed_messages.append("6号艇の『3連対率(%)』が欠損していたため、特別に 10.0% で補完しました。")
+                
+            if '1着率(%)' in df.columns and pd.isna(df.at[i, '1着率(%)']):
+                df.at[i, '1着率(%)'] = 0.0
+                imputed_messages.append("6号艇の『1着率(%)』が欠損していたため、特別に 0.0% で補完しました。")
+        
+        if imputed_messages:
+            for msg in imputed_messages:
+                st.info(f"ℹ️ {msg}")
+        # -------------------------------------------------------------
+
+        # 平均値との差分を先に計算
         df['展示タイム_mean'] = df['展示タイム'].mean()
         df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
         
@@ -219,7 +238,7 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
         df['全国勝率_mean'] = df['全国勝率'].mean()
         df['全国勝率_num'] = df['全国勝率'] - df['全国勝率_mean']
 
-        # 【変更】厳密な欠損値チェック
+        # 厳密な欠損値チェック（補完された6号艇のデータはここで引っかからなくなります）
         required_cols_for_skip = [
             '適性_節間成績', '節間平均ST_num', '展示タイム_diff',
             '全国勝率_num', '3連対率(%)', '1着率(%)'
@@ -227,12 +246,10 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
 
         missing_details = []
 
-        # 1. 必要な列がそもそもデータフレームに存在しない場合
         for col in required_cols_for_skip:
             if col not in df.columns:
                 df[col] = np.nan
 
-        # 2. 列は存在するが、一部の艇（枠番）に欠損値(NaN)が含まれている場合
         missing_cols = [col for col in required_cols_for_skip if df[col].isna().any()]
         if missing_cols:
             for col in missing_cols:
@@ -284,7 +301,6 @@ def evaluate_single_race(hd_input, rno, jcd, jcd_name, loaded_data):
 
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
 
-        # スコア125以上の買い目があるかチェック (スコア表示は res[3]*1000)
         bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.95 and (res[3]*1000) >= 240]
         
         if bet_targets:
