@@ -335,11 +335,11 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
                 sanrentan_results.append((b1, b2, b3, score))
 
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.95 and (res[3]*1000) >= 240]
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.89 and (res[3]*1000) >= 320]
         
         if bet_targets:
             st.markdown("### 🔔 【鉄板推奨】条件達成！")
-            st.success("**1号艇1着確率が95%以上、かつスコアが240以上の買い目があります。予想上位について購入してください。**")
+            st.success("**1号艇1着確率が89%以上、かつスコアが320以上の買い目があります。予想上位について購入してください。**")
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
