@@ -317,11 +317,11 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         # UIの視認性向上のためのメトリクス表示
         st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
 
-        THRESHOLD = 0.66
+        THRESHOLD = 0.89
         sanrentan_results = []
         
         if boat1_win_prob >= THRESHOLD:
-            st.success("✅ イン逃げ確率が基準(66%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
+            st.success("✅ イン逃げ確率が基準(89%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
             b1 = 1
             for perm in itertools.permutations(range(2, 7), 2):
                 b2, b3 = perm
@@ -335,11 +335,11 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
                 sanrentan_results.append((b1, b2, b3, score))
 
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.89 and (res[3]*1000) >= 320]
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.79 and (res[3]*1000) >= 240]
         
         if bet_targets:
             st.markdown("### 🔔 【鉄板推奨】条件達成！")
-            st.success("**1号艇1着確率が89%以上、かつスコアが320以上の買い目があります。予想上位について購入してください。**")
+            st.success("**1号艇1着確率が79%以上、かつスコアが240以上の買い目があります。予想上位3位以内について購入してください。**")
 
         st.markdown("#### 🎯 AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
