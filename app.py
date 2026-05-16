@@ -290,12 +290,12 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         p_top2 = np.clip(p1 + p2, 0.0, 1.0)
 
         # === 🔽 追加: AI評価の可視化 (Expanderでスッキリ収納) 🔽 ===
-        with st.expander("📊 内部データとAI評価の可視化 (詳細を確認する)", expanded=False):
+        with st.expander("内部データとAI評価の可視化 (詳細を確認する)", expanded=False):
             st.markdown("モデルがどのような確率を算出したか、どの特徴量を重視したかを確認できます。")
             col_a, col_b = st.columns(2)
             
             with col_a:
-                st.markdown("**🎯 各号艇のAI評価確率**")
+                st.markdown("**各号艇のAI評価確率**")
                 prob_df = pd.DataFrame({
                     "枠番": df['枠番'].astype(str) + "号艇",
                     "1着確率": [f"{val * 100:.1f}%" for val in p1],
@@ -321,14 +321,14 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         sanrentan_results = []
         
         if boat1_win_prob >= THRESHOLD:
-            st.success("✅ イン逃げ確率が基準(89%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
+            st.success("イン逃げ確率が基準(89%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
             b1 = 1
             for perm in itertools.permutations(range(2, 7), 2):
                 b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
                 sanrentan_results.append((b1, b2, b3, score))
         else:
-            st.warning("⚠️ イン逃げ確率が基準未満の為、波乱を含めて【**全6艇 (X-Y-Z)**】 から広く予想を展開します。")
+            st.warning("イン逃げ確率が基準未満の為、波乱を含めて【**全6艇 (X-Y-Z)**】 から広く予想を展開します。")
             for perm in itertools.permutations(range(1, 7), 3):
                 b1, b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
@@ -338,10 +338,10 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.79 and (res[3]*1000) >= 240]
         
         if bet_targets:
-            st.markdown("### 🔔 【鉄板推奨】条件達成！")
+            st.markdown("###【鉄板推奨】条件達成")
             st.success("**1号艇1着確率が81%以上、かつスコアが222以上の買い目があります。予想上位3位以内について購入してください。**")
 
-        st.markdown("#### 🎯 AI予測 3連単 上位5通り")
+        st.markdown("AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
             {"順位": f"{i+1}位", "買い目": f"{res[0]} - {res[1]} - {res[2]}", "AIスコア": f"{res[3]*1000:.3f}"}
             for i, res in enumerate(sanrentan_results[:5])
@@ -354,12 +354,12 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 # ==========================================
 # UI表示 (Streamlit メイン)
 # ==========================================
-st.title("🚤 競艇AI予測アプリケーション")
+st.title("競艇AI予測モデル")
 
 expert_models, model_1st_boat, boatracer_df = load_models()
 
 if expert_models is not None:
-    st.sidebar.header("🎯 予測設定")
+    st.sidebar.header("予測設定")
     jcd_dict = {"20": "若松", "13": "尼崎"} # 必要に応じて追加してください
     jcd_name = st.sidebar.selectbox("競艇場を選択", list(jcd_dict.values()))
     jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
