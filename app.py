@@ -32,20 +32,21 @@ st.set_page_config(page_title="競艇AI予測モデル", layout="wide")
 # iPhoneホーム画面用のオリジナルアイコン設定
 # ==========================================
 # GitHubにアップロードした正方形PNG画像のURLをここに貼り付けてください
-icon_url = "https://raw.githubusercontent.com/syumiyouseitaro-droid/sei-boatrace-ai/main/BAI_icon.png"
+icon_url = "https://raw.githubusercontent.com/syumiyouseitaro-droid/sei-boatrace-ai/main/BAI_icon.png?v=1"
 
 components.html(
     f"""
     <script>
-        var link = document.createElement('link');
+        // window.parent.document を使い、Streamlitの枠(iframe)を飛び越えて一番外側に設定する
+        var doc = window.parent.document;
+        var link = doc.createElement('link');
         link.rel = 'apple-touch-icon';
         link.href = '{icon_url}';
-        document.head.appendChild(link);
+        doc.head.appendChild(link);
     </script>
     """,
     height=0,
     width=0,
-)
 
 # ==========================================
 # カスタムCSS (スマホ最適化・絵文字なし・モダンデザイン)
