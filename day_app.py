@@ -10,9 +10,27 @@ from datetime import datetime
 import pytz
 
 # ==========================================
-# ページ設定
+# ページ設定 (絵文字アイコン削除)
 # ==========================================
-st.set_page_config(page_title="厳選！勝負レース自動抽出", page_icon="🚤", layout="centered")
+st.set_page_config(page_title="本日のAI予想対象レース", layout="centered")
+
+# ==========================================
+# 時間帯の判定と絵文字割り当て
+# ==========================================
+def get_time_emoji(time_str):
+    h, m = map(int, time_str.split(':'))
+    total_minutes = h * 60 + m
+    
+    if total_minutes <= 9 * 60:
+        return "🌅" # 9時以前 (朝)
+    elif total_minutes <= 12 * 60:
+        return "☀️" # 9時から12時まで (午前)
+    elif total_minutes <= 15 * 60:
+        return "⛅" # 12時から15時まで (午後)
+    elif total_minutes < 17 * 60:
+        return "🌇" # 15時から17時まで (夕方)
+    else:
+        return "🌙" # 17時以降 (夜)
 
 # ==========================================
 # スクレイピング関数
@@ -44,7 +62,7 @@ def scrape_todays_target_races(target_date):
         # 進捗の更新
         progress = (idx + 1) / len(jcd_dict)
         progress_bar.progress(progress)
-        status_text.text(f"🔍 検索中... 【{venue_name}】 を確認しています ({idx+1}/24)")
+        status_text.text(f"検索中... 【{venue_name}】 を確認しています ({idx+1}/24)")
 
         url = f"https://www.boatrace.jp/owpc/pc/race/raceindex?jcd={jcd}&hd={target_date}"
         
@@ -128,52 +146,53 @@ def scrape_todays_target_races(target_date):
                 first_race_time = all_times_unique[0]
 
             if first_race_time:
+                # 絵文字を判定してデータに追加
+                time_emoji = get_time_emoji(first_race_time)
+                
                 results.append({
                     "venue": venue_name,
                     "day": current_day,
                     "1r_time": first_race_time,
-                    "url": url
+                    "url": url,
+                    "emoji": time_emoji
                 })
             
-            time.sleep(0.5) # Streamlit上での待ち時間を少し短縮
+            time.sleep(0.5)
 
         except Exception:
-            pass # エラー時はスキップして次へ
+            pass
 
-    # 検索完了後のクリーンアップ
     status_text.empty()
     progress_bar.empty()
     
-    # 1Rの時間が早い順（時間割順）にソートして返す
     return sorted(results, key=lambda x: x['1r_time'])
 
 # ==========================================
 # UI表示部分 (Streamlit メイン)
 # ==========================================
-st.title("🚤 本日の勝負レース抽出ツール")
-st.markdown("全国24箇所のボートレース場から、**「一般戦」**かつ**「4日目以降（最終日含む）」**の開催場を自動で探し出します。")
+st.title("本日の勝負レース抽出ツール")
+st.markdown("全国24箇所のボートレース場から、「一般戦」かつ「4日目以降」の開催場を自動で探し出します。")
 
-# 日本時間の「現在」を取得（サーバーの場所に依存しないようにする）
 jst = pytz.timezone('Asia/Tokyo')
 now_jst = datetime.now(jst)
 today_str = now_jst.strftime("%Y%m%d")
 display_date = now_jst.strftime("%Y年%m月%d日")
 
-st.info(f"📅 取得対象日: **{display_date}** (自動取得)")
+st.info(f"取得対象日: {display_date} (自動取得)")
 
-if st.button("🚀 検索を開始する", type="primary", use_container_width=True):
+if st.button("検索を開始する", type="primary", use_container_width=True):
     with st.spinner("公式サイトからデータを取得しています...（約10〜15秒かかります）"):
         extracted_races = scrape_todays_target_races(today_str)
         
     st.divider()
     
     if not extracted_races:
-        st.warning("😭 本日、条件（一般戦 ＆ 4日目以降）に一致する開催レースはありません。")
+        st.warning("本日、条件（一般戦 ＆ 4日目以降）に一致する開催レースはありません。")
     else:
-        st.success(f"🎯 条件に一致する開催が **{len(extracted_races)}場** 見つかりました！")
+        st.success(f"条件に一致する開催が {len(extracted_races)}場 見つかりました。")
         
-        # 結果を綺麗なカード形式で表示
         for race in extracted_races:
+            # HTMLカード内の絵文字を動的に設定し、時計の絵文字は削除
             html_card = f"""
             <div style="
                 background: linear-gradient(135deg, #ffffff, #f0f4f8);
@@ -187,12 +206,12 @@ if st.button("🚀 検索を開始する", type="primary", use_container_width=T
                 align-items: center;
             ">
                 <div>
-                    <h3 style="margin: 0; color: #2c3e50;">🌊 {race['venue']}</h3>
+                    <h3 style="margin: 0; color: #2c3e50;">{race['emoji']} {race['venue']}</h3>
                     <span style="font-size: 0.9rem; color: #7f8c8d; font-weight: bold;">{race['day']}</span>
                 </div>
                 <div style="text-align: right;">
                     <p style="margin: 0; font-size: 0.8rem; color: #7f8c8d;">1R締切</p>
-                    <p style="margin: 0; font-size: 1.5rem; font-weight: bold; color: #e74c3c;">🕒 {race['1r_time']}</p>
+                    <p style="margin: 0; font-size: 1.5rem; font-weight: bold; color: #e74c3c;">{race['1r_time']}</p>
                 </div>
             </div>
             """
