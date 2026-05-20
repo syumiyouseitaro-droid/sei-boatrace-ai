@@ -11,7 +11,6 @@ import itertools
 import os
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from PIL import Image  # ★追加: 画像読み込み用ライブラリ
 
 warnings.filterwarnings('ignore')
 
@@ -24,17 +23,9 @@ BEST_W3 = 1.0
 MODEL_DIR = "."
 
 # ==========================================
-# ページ設定 (★ここでアイコンを公式設定します)
+# ページ設定 (最初に記述する必要があります)
 # ==========================================
-# GitHubの同じフォルダに icon.png をアップロードしている場合は、
-# 下記のようにファイル名（またはURL）を指定するだけで設定できます。
-icon_url = "https://raw.githubusercontent.com/あなたのユーザー名/リポジトリ名/main/icon.png"
-
-st.set_page_config(
-    page_title="競艇AI予測モデル",
-    page_icon=icon_url,  # ★ここに追加（ブラウザのタブとスマホアイコン両方に適用されます）
-    layout="wide"
-)
+st.set_page_config(page_title="競艇AI予測モデル", layout="wide")
 
 # ==========================================
 # カスタムCSS (スマホ最適化・絵文字なし・モダンデザイン)
