@@ -8,15 +8,29 @@ import unicodedata
 import time
 from datetime import datetime
 import pytz
+import streamlit.components.v1 as components
 
 # ==========================================
 # ページ設定 (絵文字アイコン削除)
 # ==========================================
 st.set_page_config(page_title="本日のAI予想対象レース", layout="centered")
 
-# ==========================================
-# 時間帯の判定と絵文字割り当て
-# ==========================================
+icon_url = "https://raw.githubusercontent.com/syumiyouseitaro-droid/sei-boatrace-ai/main/BAIday_icon.png"
+
+components.html(
+    f"""
+    <script>
+        var link = document.createElement('link');
+        link.rel = 'apple-touch-icon';
+        link.href = '{icon_url}';
+        document.head.appendChild(link);
+    </script>
+    """,
+    height=0,
+    width=0,
+)
+
+
 def get_time_emoji(time_str):
     h, m = map(int, time_str.split(':'))
     total_minutes = h * 60 + m
