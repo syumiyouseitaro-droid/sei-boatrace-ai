@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components # 追加: アイコン設定用
 import pandas as pd
 import numpy as np
 import requests
@@ -12,6 +11,7 @@ import itertools
 import os
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from PIL import Image  # ★追加: 画像読み込み用ライブラリ
 
 warnings.filterwarnings('ignore')
 
@@ -24,30 +24,18 @@ BEST_W3 = 1.0
 MODEL_DIR = "."
 
 # ==========================================
-# ページ設定 (最初に記述する必要があります)
+# ページ設定 (★ここでアイコンを公式設定します)
 # ==========================================
-st.set_page_config(page_title="競艇AI予測モデル", layout="wide")
+# GitHubの同じフォルダに icon.png をアップロードしている場合は、
+# 下記のようにファイル名（またはURL）を指定するだけで設定できます。
+icon_url = "https://raw.githubusercontent.com/あなたのユーザー名/リポジトリ名/main/icon.png"
 
-# ==========================================
-# iPhoneホーム画面用のオリジナルアイコン設定
-# ==========================================
-# GitHubにアップロードした正方形PNG画像のURLをここに貼り付けてください
-icon_url = "https://raw.githubusercontent.com/syumiyouseitaro-droid/sei-boatrace-ai/main/BAI_icon.png?v=1"
-
-components.html(
-    f"""
-    <script>
-        // window.parent.document を使い、Streamlitの枠(iframe)を飛び越えて一番外側に設定する
-        var doc = window.parent.document;
-        var link = doc.createElement('link');
-        link.rel = 'apple-touch-icon';
-        link.href = '{icon_url}';
-        doc.head.appendChild(link);
-    </script>
-    """,
-    height=0,
-    width=0,
+st.set_page_config(
+    page_title="競艇AI予測モデル",
+    page_icon=icon_url,  # ★ここに追加（ブラウザのタブとスマホアイコン両方に適用されます）
+    layout="wide"
 )
+
 # ==========================================
 # カスタムCSS (スマホ最適化・絵文字なし・モダンデザイン)
 # ==========================================
