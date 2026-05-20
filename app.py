@@ -83,9 +83,10 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
         st.error(f"⚠️ 選手データの読み込みエラー: {e}")
         return None
 
+# 【修正】2桁のコード（"01", "13", "20", "24"）をそのままファイル名に使用するように変更
 @st.cache_resource(show_spinner="AIモデルを読み込み中...")
 def load_venue_models(jcd_code: str) -> tuple:
-    n = str(int(jcd_code)) # 例: "01" -> "1", "20" -> "20" に変換
+    n = jcd_code # 頭の0を消さずにそのまま使う (例: "01" のまま)
     try:
         expert_models = {
             '1st': pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_1st.pkl"), "rb")),
@@ -353,7 +354,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 st.title("競艇AI予測モデル")
 
 st.sidebar.header("予測設定")
-# 【変更】大村(24)を辞書に追加
 jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松", "24": "大村"} 
 jcd_name = st.sidebar.selectbox("競艇場を選択", list(jcd_dict.values()))
 jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
@@ -369,5 +369,4 @@ if expert_models is not None and boatracer_df is not None:
     if st.sidebar.button("予測を開始する", type="primary", use_container_width=True):
         evaluate_single_race(hd_input, rno, jcd_code, jcd_name, (expert_models, model_1st_boat, boatracer_df))
 else:
-    n = str(int(jcd_code))
-    st.warning(f"選択した競艇場（{jcd_name}）のモデルファイル（ {n}_model_*.pkl ）または boatracer.data.csv が見つかりません。ディレクトリ({MODEL_DIR})を確認してください。")
+    st.warning(f"選択した競艇場（{jcd_name}）のモデルファイル（ {jcd_code}_model_*.pkl ）または boatracer.data.csv が見つかりません。ディレクトリ({MODEL_DIR})を確認してください。")
