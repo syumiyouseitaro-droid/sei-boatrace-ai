@@ -83,10 +83,9 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
         st.error(f"⚠️ 選手データの読み込みエラー: {e}")
         return None
 
-# 【変更】競艇場コード(JCD)を受け取り、その場専用のモデルをロードするように分離
 @st.cache_resource(show_spinner="AIモデルを読み込み中...")
 def load_venue_models(jcd_code: str) -> tuple:
-    n = str(int(jcd_code)) # 例: "01" -> "1", "20" -> "20" に変換（プレフィックス用）
+    n = str(int(jcd_code)) # 例: "01" -> "1", "20" -> "20" に変換
     try:
         expert_models = {
             '1st': pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_1st.pkl"), "rb")),
@@ -354,12 +353,11 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 st.title("競艇AI予測モデル")
 
 st.sidebar.header("予測設定")
-# 【変更】競艇場の辞書に桐生(01)を追加（APIの仕様上01などの2桁フォーマットにしておきます）
-jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松"} 
+# 【変更】大村(24)を辞書に追加
+jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松", "24": "大村"} 
 jcd_name = st.sidebar.selectbox("競艇場を選択", list(jcd_dict.values()))
 jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
 
-# 【変更】UIで選択された競艇場に応じたモデルをロードする
 expert_models, model_1st_boat = load_venue_models(jcd_code)
 boatracer_df = load_and_preprocess_boatracer()
 
