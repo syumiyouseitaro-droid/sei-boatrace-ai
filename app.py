@@ -61,7 +61,6 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
             return None
             
         df_csv = pd.read_csv(csv_path, header=1)
-        # 【変更】新モデルに合わせて '2連対率(%)' を追加
         df_csv = df_csv[['登録番号', 'コース', '3連対率(%)', '2連対率(%)', '1着率(%)']].copy()
         
         df_csv['登録番号'] = pd.to_numeric(df_csv['登録番号'], errors='coerce').fillna(-1).astype(int)
@@ -75,7 +74,6 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
             try: return float(val_str)
             except ValueError: return np.nan
 
-        # 【変更】 '2連対率(%)' もクレンジング対象に追加
         for col in ['3連対率(%)', '2連対率(%)', '1着率(%)']:
             if col in df_csv.columns:
                 df_csv[col] = df_csv[col].apply(clean_pct)
@@ -85,20 +83,21 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
         st.error(f"⚠️ 選手データの読み込みエラー: {e}")
         return None
 
+# 【変更】競艇場コード(JCD)を受け取り、その場専用のモデルをロードするように分離
 @st.cache_resource(show_spinner="AIモデルを読み込み中...")
-def load_models() -> tuple:
+def load_venue_models(jcd_code: str) -> tuple:
+    n = str(int(jcd_code)) # 例: "01" -> "1", "20" -> "20" に変換（プレフィックス用）
     try:
         expert_models = {
-            '1st': pickle.load(open(os.path.join(MODEL_DIR, "model_1st.pkl"), "rb")),
-            '2nd': pickle.load(open(os.path.join(MODEL_DIR, "model_2nd.pkl"), "rb")),
-            'top3': pickle.load(open(os.path.join(MODEL_DIR, "model_top3.pkl"), "rb"))
+            '1st': pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_1st.pkl"), "rb")),
+            '2nd': pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_2nd.pkl"), "rb")),
+            'top3': pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_top3.pkl"), "rb"))
         }
-        model_1st_boat = pickle.load(open(os.path.join(MODEL_DIR, "model_1st_boat_win.pkl"), "rb"))
-        boatracer_df = load_and_preprocess_boatracer()
-        return expert_models, model_1st_boat, boatracer_df
+        model_1st_boat = pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_1st_boat_win.pkl"), "rb"))
+        return expert_models, model_1st_boat
     except Exception as e:
-        st.error(f"❌ モデルのロードエラー: 指定のディレクトリ({MODEL_DIR})にpklファイルが存在するか確認してください。詳細: {e}")
-        return None, None, None
+        st.error(f"❌ モデルのロードエラー: 指定のディレクトリ({MODEL_DIR})に『 {n}_model_*.pkl 』が存在するか確認してください。詳細: {e}")
+        return None, None
 
 def scrape_target_race_basic(hd: str, rno: int, jcd: str) -> dict:
     session = create_robust_session()
@@ -166,7 +165,6 @@ def scrape_target_race_basic(hd: str, rno: int, jcd: str) -> dict:
                 "節間平均ST": np.mean(st_values) if st_values else np.nan, "展示タイム": np.nan
             }
             
-        # 展示情報の取得
         try:
             res_before = session.get("https://www.boatrace.jp/owpc/pc/race/beforeinfo", params=params, timeout=15)
             soup_before = BeautifulSoup(res_before.content, "html.parser")
@@ -208,10 +206,7 @@ def get_custom_series_rank(row) -> float:
 def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loaded_data: tuple):
     expert_models, model_1st_boat, boatracer_df = loaded_data
     
-    # 【変更】新しい特徴量のセットに更新 ('展示タイム_diff' を1号艇予測に追加)
     boat1_features = ['1着率(%)', '全国勝率_num', '適性_節間成績', '展示タイム_diff']
-    
-    # 【変更】エキスパートモデル用の新しい特徴量セット ('2連対率(%)' を追加し順序を変更)
     features = [
         '節間平均ST_num', '適性_節間成績', '展示タイム_diff',
         '全国勝率_num', '2連対率(%)', '3連対率(%)', '1着率(%)'
@@ -237,7 +232,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         df = df.sort_values('枠番').reset_index(drop=True)
         df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
-        # 【変更】6号艇の欠損値特別補完処理に '2連対率(%)' を追加
         imputed_messages = []
         idx_6 = df[df['枠番'] == 6].index
         if not idx_6.empty:
@@ -256,7 +250,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             for msg in imputed_messages:
                 st.info(f"ℹ️ {msg}")
 
-        # 相対評価用の差分計算
         df['展示タイム_mean'] = df['展示タイム'].mean()
         df['展示タイム_diff'] = df['展示タイム'] - df['展示タイム_mean']
         
@@ -266,10 +259,8 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         df['全国勝率_mean'] = df['全国勝率'].mean()
         df['全国勝率_num'] = df['全国勝率'] - df['全国勝率_mean']
 
-        # 欠損値チェック
         missing_details = []
-        for col in features + boat1_features: # 両方のモデルで使う特徴量の欠損をチェック
-            col_unique = list(set(features + boat1_features))
+        col_unique = list(set(features + boat1_features))
         for col in col_unique:
             if col not in df.columns:
                 df[col] = np.nan
@@ -287,11 +278,9 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
                 st.error(f"・不足データ: {detail}")
             return
 
-        # データの型変換を保証
         for col in set(features + boat1_features):
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # === AI推論フェーズ ===
         X_boat1 = df[df['枠番'] == 1][boat1_features]
         boat1_win_prob = model_1st_boat.predict_proba(X_boat1)[0][1]
 
@@ -301,7 +290,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         p_top3 = expert_models['top3'].predict_proba(X_pred)[:, 1]
         p_top2 = np.clip(p1 + p2, 0.0, 1.0)
 
-        # === AI評価の可視化 (Expanderでスッキリ収納) ===
         with st.expander("内部データとAI評価の可視化 (詳細を確認する)", expanded=False):
             st.markdown("モデルがどのような確率を算出したか、どの特徴量を重視したかを確認できます。")
             col_a, col_b = st.columns(2)
@@ -320,15 +308,12 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
                 st.markdown("**🔢 モデルに入力された相対特徴量**")
                 feature_display_df = df[['枠番'] + features].copy()
                 feature_display_df['枠番'] = feature_display_df['枠番'].astype(str) + "号艇"
-                # 見やすさのために小数を丸める
                 for col in features:
                     feature_display_df[col] = feature_display_df[col].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "NaN")
                 st.dataframe(feature_display_df, hide_index=True, use_container_width=True)
 
-        # UIの視認性向上のためのメトリクス表示
         st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
 
-        # 【変更】THRESHOLDを0.99に更新
         THRESHOLD = 0.99
         sanrentan_results = []
         
@@ -348,11 +333,10 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
         
-        # 鉄板条件のUIは既存のロジックを維持 (イン逃げ確率が高い場合の上位買い目)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.90 and (res[3]*1000) >= 240]
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.79 and (res[3]*1000) >= 240]
         if bet_targets:
             st.markdown("###【鉄板推奨】条件達成")
-            st.success("**1号艇1着確率が90%以上、かつスコアが240以上の買い目があります。予想上位3位以内について購入してください。**")
+            st.success("**1号艇1着確率が81%以上、かつスコアが222以上の買い目があります。予想上位3位以内について購入してください。**")
 
         st.markdown("AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
@@ -369,13 +353,17 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 # ==========================================
 st.title("競艇AI予測モデル")
 
-expert_models, model_1st_boat, boatracer_df = load_models()
+st.sidebar.header("予測設定")
+# 【変更】競艇場の辞書に桐生(01)を追加（APIの仕様上01などの2桁フォーマットにしておきます）
+jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松"} 
+jcd_name = st.sidebar.selectbox("競艇場を選択", list(jcd_dict.values()))
+jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
 
-if expert_models is not None:
-    st.sidebar.header("予測設定")
-    jcd_dict = {"20": "若松", "13": "尼崎"} # 必要に応じて追加してください
-    jcd_name = st.sidebar.selectbox("競艇場を選択", list(jcd_dict.values()))
-    jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
+# 【変更】UIで選択された競艇場に応じたモデルをロードする
+expert_models, model_1st_boat = load_venue_models(jcd_code)
+boatracer_df = load_and_preprocess_boatracer()
+
+if expert_models is not None and boatracer_df is not None:
     selected_date = st.sidebar.date_input("対象日付")
     hd_input = selected_date.strftime("%Y%m%d")
     rno = st.sidebar.slider("レース番号", min_value=1, max_value=12, value=1)
@@ -383,4 +371,5 @@ if expert_models is not None:
     if st.sidebar.button("予測を開始する", type="primary", use_container_width=True):
         evaluate_single_race(hd_input, rno, jcd_code, jcd_name, (expert_models, model_1st_boat, boatracer_df))
 else:
-    st.warning("システムを再起動するか、モデルファイル(.pkl)およびデータファイル(.csv)が同じフォルダにあるか確認してください。")
+    n = str(int(jcd_code))
+    st.warning(f"選択した競艇場（{jcd_name}）のモデルファイル（ {n}_model_*.pkl ）または boatracer.data.csv が見つかりません。ディレクトリ({MODEL_DIR})を確認してください。")
