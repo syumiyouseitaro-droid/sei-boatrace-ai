@@ -377,7 +377,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         
         bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.90 and (res[3]*1000) >= 240]
         if bet_targets:
-            st.success("[回収率プラス条件達成] 1号艇1着確率が90%以上、かつスコアが240以上の強力な買い目があります。")
+            st.success("[回収率プラス条件達成] 1号艇1着確率が90%以上、かつスコアが240以上の予想があります！！")
 
         st.markdown("### AI予測 3連単 上位5通り")
         ranks = ["1", "2", "3", "4", "5"]
