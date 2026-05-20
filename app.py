@@ -44,7 +44,7 @@ st.markdown("""
         border-radius: 8px;
         padding: 15px;
         box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
-        text-align: center;
+        text-align: left;
     }
     div[data-testid="metric-container"] > label {
         font-weight: bold;
@@ -350,8 +350,9 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         p_top3 = expert_models['top3'].predict_proba(X_pred)[:, 1]
         p_top2 = np.clip(p1 + p2, 0.0, 1.0)
         
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
+        # 均等な3列を作り、一番左(col1)に配置する
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
 
         st.divider()
