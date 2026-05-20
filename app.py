@@ -25,10 +25,10 @@ MODEL_DIR = "."
 # ==========================================
 # ページ設定 (最初に記述する必要があります)
 # ==========================================
-st.set_page_config(page_title="競艇AI予測アプリケーション", page_icon="🚤", layout="wide")
+st.set_page_config(page_title="競艇AI予測モデル", layout="wide")
 
 # ==========================================
-# カスタムCSSの適用 (デザインのおしゃれ化)
+# カスタムCSS (スマホ最適化・絵文字なし・モダンデザイン)
 # ==========================================
 st.markdown("""
 <style>
@@ -36,6 +36,7 @@ st.markdown("""
     html, body, [class*="css"] {
         font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
     }
+    
     /* Metric(指標)カードのデザイン */
     div[data-testid="metric-container"] {
         background-color: #f8f9fa;
@@ -55,6 +56,7 @@ st.markdown("""
         font-size: 2rem !important;
         font-weight: 800;
     }
+    
     /* 買い目ランキングのカード風デザイン */
     .ranking-card {
         background: linear-gradient(135deg, #ffffff, #f0f4f8);
@@ -68,28 +70,47 @@ st.markdown("""
         align-items: center;
     }
     .ranking-rank {
-        font-size: 1.5rem;
+        font-size: 1.2rem;
         font-weight: bold;
-        color: #d4af37; /* ゴールド */
-        width: 60px;
+        color: #ffffff;
+        background-color: #0056b3;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-radius: 50%;
     }
     .ranking-bet {
         font-size: 1.8rem;
         font-weight: 900;
         letter-spacing: 2px;
         color: #2c3e50;
+        flex-grow: 1;
+        text-align: center;
     }
     .ranking-score {
         font-size: 1rem;
         color: #7f8c8d;
         font-weight: bold;
     }
+
+    /* スマホ向け（画面幅が768px以下の場合）の設定 */
+    @media (max-width: 768px) {
+        .ranking-bet { font-size: 1.3rem; }
+        .ranking-rank { width: 25px; height: 25px; font-size: 1rem; }
+        .ranking-score { font-size: 0.8rem; }
+        /* 指標カードの余白を減らして画面を広く使う */
+        div[data-testid="metric-container"] { padding: 10px; }
+        /* Streamlit全体の左右の余白を削る */
+        .block-container { padding-left: 1rem; padding-right: 1rem; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 関数定義 (スクレイピングやモデルロードは元のまま)
+# 関数定義
 # ==========================================
 def normalize_text(text: str) -> str:
     if not text: return ""
@@ -138,7 +159,7 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
         df_csv = df_csv.drop_duplicates(subset=['登録番号', 'コース'])
         return df_csv
     except Exception as e:
-        st.error(f"⚠️ 選手データの読み込みエラー: {e}")
+        st.error(f"選手データの読み込みエラー: {e}")
         return None
 
 @st.cache_resource(show_spinner="AIモデルを読み込み中...")
@@ -153,7 +174,7 @@ def load_venue_models(jcd_code: str) -> tuple:
         model_1st_boat = pickle.load(open(os.path.join(MODEL_DIR, f"{n}_model_1st_boat_win.pkl"), "rb"))
         return expert_models, model_1st_boat
     except Exception as e:
-        st.error(f"❌ モデルのロードエラー: 指定のディレクトリ({MODEL_DIR})に『 {n}_model_*.pkl 』が存在するか確認してください。")
+        st.error(f"モデルのロードエラー: 指定のディレクトリ({MODEL_DIR})に『 {n}_model_*.pkl 』が存在するか確認してください。")
         return None, None
 
 def scrape_target_race_basic(hd: str, rno: int, jcd: str) -> dict:
@@ -261,7 +282,7 @@ def get_custom_series_rank(row) -> float:
         return np.nan
 
 # ==========================================
-# 評価関数 (デザイン改修版)
+# 評価処理 (デザイン改修版)
 # ==========================================
 def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loaded_data: tuple):
     expert_models, model_1st_boat, boatracer_df = loaded_data
@@ -272,13 +293,13 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         '全国勝率_num', '2連対率(%)', '3連対率(%)', '1着率(%)'
     ]
 
-    st.markdown(f"## 🏁 {jcd_name} 第{rno}R ({hd_input[:4]}/{hd_input[4:6]}/{hd_input[6:]}) AI予測結果")
+    st.markdown(f"## {jcd_name} 第{rno}R ({hd_input[:4]}/{hd_input[4:6]}/{hd_input[6:]}) AI予測結果")
     
     with st.spinner("WEBから最新の出走表・展示データを取得・解析中..."):
         r_info = scrape_target_race_basic(hd_input, rno, jcd)
 
     if not r_info:
-        st.error("❌ 出走表データが取得できませんでした。レース番号や日付を確認してください。")
+        st.error("出走表データが取得できませんでした。レース番号や日付を確認してください。")
         return
 
     try:
@@ -314,7 +335,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 
         missing_cols = [col for col in col_unique if df[col].isna().any()]
         if missing_cols:
-            st.warning("⚠️ 展示タイムなど、予測に必要なデータが未発表または不足しているため予測を中止します。")
+            st.warning("展示タイムなど、予測に必要なデータが未発表または不足しているため予測を中止します。")
             return
 
         for col in set(features + boat1_features):
@@ -329,10 +350,9 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         p_top3 = expert_models['top3'].predict_proba(X_pred)[:, 1]
         p_top2 = np.clip(p1 + p2, 0.0, 1.0)
         
-        # --- UI改善: イン逃げ期待度を大きく表示 ---
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.metric(label="🎯 イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
+            st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
 
         st.divider()
 
@@ -340,14 +360,14 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         sanrentan_results = []
         
         if boat1_win_prob >= THRESHOLD:
-            st.info(f"💡 **AI判断:** イン逃げ確率が非常に高いため、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
+            st.info(f"[AI判断] イン逃げ確率が非常に高いため、【1号艇1着固定 (1-X-X)】 で予想を展開します。")
             b1 = 1
             for perm in itertools.permutations(range(2, 7), 2):
                 b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
                 sanrentan_results.append((b1, b2, b3, score))
         else:
-            st.info(f"💡 **AI判断:** 波乱の可能性を含め、【**全6艇 (X-Y-Z)**】 から広く予想を展開します。")
+            st.info(f"[AI判断] 波乱の可能性を含め、【全6艇 (X-Y-Z)】 から広く予想を展開します。")
             for perm in itertools.permutations(range(1, 7), 3):
                 b1, b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
@@ -357,81 +377,87 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         
         bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.90 and (res[3]*1000) >= 240]
         if bet_targets:
-            st.success("🔥 **回収率プラス条件達成:** 1号艇1着確率が90%以上、かつスコアが240以上の強力な買い目があります！")
+            st.success("[回収率プラス条件達成] 1号艇1着確率が90%以上、かつスコアが240以上の強力な買い目があります。")
 
-        # --- UI改善: 買い目ランキングのカード化 ---
-        st.markdown("### 🏆 AI予測 3連単 上位5通り")
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        st.markdown("### AI予測 3連単 上位5通り")
+        ranks = ["1", "2", "3", "4", "5"]
         for i, res in enumerate(sanrentan_results[:5]):
             html_card = f"""
             <div class="ranking-card">
-                <div class="ranking-rank">{medals[i]}</div>
+                <div class="ranking-rank">{ranks[i]}</div>
                 <div class="ranking-bet">{res[0]} - {res[1]} - {res[2]}</div>
-                <div class="ranking-score">AI Score: {res[3]*1000:.1f}</div>
+                <div class="ranking-score">Score: {res[3]*1000:.1f}</div>
             </div>
             """
             st.markdown(html_card, unsafe_allow_html=True)
             
         st.divider()
 
-        # --- UI改善: 内部データの視覚化（グラフとヒートマップ） ---
-        with st.expander("📊 内部データとAI評価の可視化 (詳細)", expanded=False):
+        with st.expander("内部データとAI評価の可視化 (詳細)", expanded=False):
             st.markdown("モデルが算出した各号艇の確率と、入力された特徴量を確認できます。")
             
-            st.markdown("#### 🚤 各号艇のAI評価確率")
-            prob_df = pd.DataFrame({
-                "枠番": [f"{i}号艇" for i in range(1, 7)],
-                "1着確率(%)": p1 * 100,
-                "2着確率(%)": p2 * 100,
-                "3着内確率(%)": p_top3 * 100
-            })
-            # st.dataframe のカラム設定でプログレスバー(棒グラフ)を表示
-            st.dataframe(
-                prob_df,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "1着確率(%)": st.column_config.ProgressColumn("1着確率", format="%.1f%%", min_value=0, max_value=100),
-                    "2着確率(%)": st.column_config.ProgressColumn("2着確率", format="%.1f%%", min_value=0, max_value=100),
-                    "3着内確率(%)": st.column_config.ProgressColumn("3着内確率", format="%.1f%%", min_value=0, max_value=100),
-                }
-            )
+            # スマホ最適化: 横に長い表をタブで分割
+            tab1, tab2 = st.tabs(["各号艇のAI評価", "入力された特徴量データ"])
+            
+            with tab1:
+                prob_df = pd.DataFrame({
+                    "枠番": [f"{i}号艇" for i in range(1, 7)],
+                    "1着確率(%)": p1 * 100,
+                    "2着確率(%)": p2 * 100,
+                    "3着内確率(%)": p_top3 * 100
+                })
+                st.dataframe(
+                    prob_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "1着確率(%)": st.column_config.ProgressColumn("1着確率", format="%.1f%%", min_value=0, max_value=100),
+                        "2着確率(%)": st.column_config.ProgressColumn("2着確率", format="%.1f%%", min_value=0, max_value=100),
+                        "3着内確率(%)": st.column_config.ProgressColumn("3着内確率", format="%.1f%%", min_value=0, max_value=100),
+                    }
+                )
 
-            st.markdown("#### 🔢 入力された相対特徴量 (ヒートマップ)")
-            feature_display_df = df[['枠番'] + features].copy()
-            feature_display_df['枠番'] = feature_display_df['枠番'].astype(str) + "号艇"
-            # PandasのStyler機能を利用して数値をグラデーションで色付け
-            styled_df = feature_display_df.style.background_gradient(cmap='Blues', subset=features).format({col: "{:.3f}" for col in features})
-            st.dataframe(styled_df, hide_index=True, use_container_width=True)
+            with tab2:
+                feature_display_df = df[['枠番'] + features].copy()
+                feature_display_df['枠番'] = feature_display_df['枠番'].astype(str) + "号艇"
+                # エラー回避のため、少数点第3位までの文字列に変換
+                for col in features:
+                    feature_display_df[col] = feature_display_df[col].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "NaN")
+                st.dataframe(feature_display_df, hide_index=True, use_container_width=True)
 
     except Exception as e:
-        st.error(f"❌ 分析処理中にエラーが発生しました: {e}")
+        st.error(f"分析処理中にエラーが発生しました: {e}")
 
 # ==========================================
-# サイドバーとメイン処理
+# メイン画面 (スマホ最適化: サイドバー廃止)
 # ==========================================
-st.sidebar.image("https://img.icons8.com/color/96/000000/speedboat.png", width=80) # アクセントのアイコン
-st.sidebar.title("設定")
-st.sidebar.markdown("---")
+st.title("競艇AI予測モデル")
+st.markdown("---")
 
-jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松", "24": "大村"} 
-jcd_name = st.sidebar.selectbox("🏟️ 競艇場を選択", list(jcd_dict.values()))
-jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
+st.markdown("### 予測設定")
 
-expert_models, model_1st_boat = load_venue_models(jcd_code)
-boatracer_df = load_and_preprocess_boatracer()
+# 入力項目をメイン画面上部に配置
+col1, col2 = st.columns(2)
+with col1:
+    jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松", "24": "大村"} 
+    jcd_name = st.selectbox("競艇場を選択", list(jcd_dict.values()))
+    jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
+    
+with col2:
+    selected_date = st.date_input("対象日付")
+    hd_input = selected_date.strftime("%Y%m%d")
 
-st.sidebar.markdown("---")
-selected_date = st.sidebar.date_input("📅 対象日付")
-hd_input = selected_date.strftime("%Y%m%d")
-rno = st.sidebar.slider("🏁 レース番号", min_value=1, max_value=12, value=1)
+rno = st.number_input("レース番号", min_value=1, max_value=12, value=1)
 
-st.sidebar.markdown("---")
-if st.sidebar.button("🚀 予測を開始する", type="primary", use_container_width=True):
+start_button = st.button("予測を開始する", type="primary", use_container_width=True)
+st.markdown("---")
+
+# 実行
+if start_button:
+    expert_models, model_1st_boat = load_venue_models(jcd_code)
+    boatracer_df = load_and_preprocess_boatracer()
+    
     if expert_models is not None and boatracer_df is not None:
         evaluate_single_race(hd_input, rno, jcd_code, jcd_name, (expert_models, model_1st_boat, boatracer_df))
     else:
-        st.sidebar.error("モデルまたはデータが不足しています。")
-else:
-    # 初期画面（ボタンを押す前）のウェルカム表示
-    st.markdown("<h2 style='text-align: center; color: #7f8c8d; margin-top: 50px;'>左のサイドバーから条件を指定して<br>「予測を開始する」をクリックしてください</h2>", unsafe_allow_html=True)
+        st.error("モデルまたはデータが不足しています。")
