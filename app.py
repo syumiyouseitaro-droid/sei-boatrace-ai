@@ -61,7 +61,9 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
             return None
             
         df_csv = pd.read_csv(csv_path, header=1)
-        df_csv = df_csv[['登録番号', 'コース', '3連対率(%)', '1着率(%)']].copy()
+        # 【変更】新モデルに合わせて '2連対率(%)' を追加
+        df_csv = df_csv[['登録番号', 'コース', '3連対率(%)', '2連対率(%)', '1着率(%)']].copy()
+        
         df_csv['登録番号'] = pd.to_numeric(df_csv['登録番号'], errors='coerce').fillna(-1).astype(int)
         df_csv['コース'] = pd.to_numeric(df_csv['コース'], errors='coerce').fillna(-1).astype(int)
         df_csv = df_csv[df_csv['登録番号'] != -1]
@@ -73,8 +75,10 @@ def load_and_preprocess_boatracer() -> pd.DataFrame:
             try: return float(val_str)
             except ValueError: return np.nan
 
-        for col in ['3連対率(%)', '1着率(%)']:
-            df_csv[col] = df_csv[col].apply(clean_pct)
+        # 【変更】 '2連対率(%)' もクレンジング対象に追加
+        for col in ['3連対率(%)', '2連対率(%)', '1着率(%)']:
+            if col in df_csv.columns:
+                df_csv[col] = df_csv[col].apply(clean_pct)
         df_csv = df_csv.drop_duplicates(subset=['登録番号', 'コース'])
         return df_csv
     except Exception as e:
@@ -155,7 +159,7 @@ def scrape_target_race_basic(hd: str, rno: int, jcd: str) -> dict:
             
             racers_info[waku] = {
                 "登録番号": reg_no, "枠番": waku, "全国勝率": nat[0],
-                "節間_コース1_平均着順": np.mean(c1_ranks) if c1_ranks else np.nan,
+                "コース1_平均着順": np.mean(c1_ranks) if c1_ranks else np.nan,
                 "節間_スロー成績": np.mean(c123_ranks) if c123_ranks else np.nan,
                 "節間_ダッシュ成績": np.mean(c456_ranks) if c456_ranks else np.nan,
                 "節間_平均着順": np.mean(c_all_ranks) if c_all_ranks else np.nan,
@@ -181,7 +185,7 @@ def scrape_target_race_basic(hd: str, rno: int, jcd: str) -> dict:
 def get_custom_series_rank(row) -> float:
     try:
         course = int(row['枠番'])
-        course1_val = row.get('節間_コース1_平均着順', np.nan)
+        course1_val = row.get('コース1_平均着順', np.nan)
         slow_val = row.get('節間_スロー成績', np.nan)
         dash_val = row.get('節間_ダッシュ成績', np.nan)
         mean_val = row.get('節間_平均着順', np.nan)
@@ -204,10 +208,13 @@ def get_custom_series_rank(row) -> float:
 def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loaded_data: tuple):
     expert_models, model_1st_boat, boatracer_df = loaded_data
     
-    boat1_features = ['1着率(%)', '全国勝率_num', '適性_節間成績']
+    # 【変更】新しい特徴量のセットに更新 ('展示タイム_diff' を1号艇予測に追加)
+    boat1_features = ['1着率(%)', '全国勝率_num', '適性_節間成績', '展示タイム_diff']
+    
+    # 【変更】エキスパートモデル用の新しい特徴量セット ('2連対率(%)' を追加し順序を変更)
     features = [
-        '適性_節間成績', '節間平均ST_num', '展示タイム_diff',
-        '全国勝率_num', '3連対率(%)', '1着率(%)'
+        '節間平均ST_num', '適性_節間成績', '展示タイム_diff',
+        '全国勝率_num', '2連対率(%)', '3連対率(%)', '1着率(%)'
     ]
 
     st.markdown(f"## 🏁 {hd_input} 第{rno}R ({jcd_name}) AI予測結果")
@@ -230,7 +237,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         df = df.sort_values('枠番').reset_index(drop=True)
         df['適性_節間成績'] = df.apply(get_custom_series_rank, axis=1)
 
-        # 6号艇の欠損値特別補完処理
+        # 【変更】6号艇の欠損値特別補完処理に '2連対率(%)' を追加
         imputed_messages = []
         idx_6 = df[df['枠番'] == 6].index
         if not idx_6.empty:
@@ -238,6 +245,9 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             if '3連対率(%)' in df.columns and pd.isna(df.at[i, '3連対率(%)']):
                 df.at[i, '3連対率(%)'] = 10.0
                 imputed_messages.append("6号艇の『3連対率(%)』が欠損していたため、10.0% で補完しました。")
+            if '2連対率(%)' in df.columns and pd.isna(df.at[i, '2連対率(%)']):
+                df.at[i, '2連対率(%)'] = 5.0
+                imputed_messages.append("6号艇の『2連対率(%)』が欠損していたため、5.0% で補完しました。")
             if '1着率(%)' in df.columns and pd.isna(df.at[i, '1着率(%)']):
                 df.at[i, '1着率(%)'] = 0.0
                 imputed_messages.append("6号艇の『1着率(%)』が欠損していたため、0.0% で補完しました。")
@@ -258,11 +268,13 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 
         # 欠損値チェック
         missing_details = []
-        for col in features:
+        for col in features + boat1_features: # 両方のモデルで使う特徴量の欠損をチェック
+            col_unique = list(set(features + boat1_features))
+        for col in col_unique:
             if col not in df.columns:
                 df[col] = np.nan
 
-        missing_cols = [col for col in features if df[col].isna().any()]
+        missing_cols = [col for col in col_unique if df[col].isna().any()]
         if missing_cols:
             for col in missing_cols:
                 missing_wakubans = df[df[col].isna()]['枠番'].tolist()
@@ -276,7 +288,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             return
 
         # データの型変換を保証
-        for col in features:
+        for col in set(features + boat1_features):
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # === AI推論フェーズ ===
@@ -289,7 +301,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         p_top3 = expert_models['top3'].predict_proba(X_pred)[:, 1]
         p_top2 = np.clip(p1 + p2, 0.0, 1.0)
 
-        # === 🔽 追加: AI評価の可視化 (Expanderでスッキリ収納) 🔽 ===
+        # === AI評価の可視化 (Expanderでスッキリ収納) ===
         with st.expander("内部データとAI評価の可視化 (詳細を確認する)", expanded=False):
             st.markdown("モデルがどのような確率を算出したか、どの特徴量を重視したかを確認できます。")
             col_a, col_b = st.columns(2)
@@ -310,36 +322,37 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
                 feature_display_df['枠番'] = feature_display_df['枠番'].astype(str) + "号艇"
                 # 見やすさのために小数を丸める
                 for col in features:
-                    feature_display_df[col] = feature_display_df[col].apply(lambda x: f"{x:.3f}")
+                    feature_display_df[col] = feature_display_df[col].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "NaN")
                 st.dataframe(feature_display_df, hide_index=True, use_container_width=True)
-        # ========================================================
 
         # UIの視認性向上のためのメトリクス表示
         st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
 
-        THRESHOLD = 0.89
+        # 【変更】THRESHOLDを0.99に更新
+        THRESHOLD = 0.99
         sanrentan_results = []
         
         if boat1_win_prob >= THRESHOLD:
-            st.success("イン逃げ確率が基準(89%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
+            st.success(f"イン逃げ確率が基準({THRESHOLD*100:.0f}%)を満たしている為、【**1号艇1着固定 (1-X-X)**】 で予想を展開します。")
             b1 = 1
             for perm in itertools.permutations(range(2, 7), 2):
                 b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
                 sanrentan_results.append((b1, b2, b3, score))
         else:
-            st.warning("イン逃げ確率が基準未満の為、波乱を含めて【**全6艇 (X-Y-Z)**】 から広く予想を展開します。")
+            st.warning(f"イン逃げ確率が基準未満の為、波乱を含めて【**全6艇 (X-Y-Z)**】 から広く予想を展開します。")
             for perm in itertools.permutations(range(1, 7), 3):
                 b1, b2, b3 = perm
                 score = (p1[b1-1] ** BEST_W1) * (p_top2[b2-1] ** BEST_W2) * (p_top3[b3-1] ** BEST_W3)
                 sanrentan_results.append((b1, b2, b3, score))
 
         sanrentan_results.sort(key=lambda x: x[3], reverse=True)
-        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.79 and (res[3]*1000) >= 240]
         
+        # 鉄板条件のUIは既存のロジックを維持 (イン逃げ確率が高い場合の上位買い目)
+        bet_targets = [res for res in sanrentan_results[:5] if boat1_win_prob >= 0.90 and (res[3]*1000) >= 240]
         if bet_targets:
             st.markdown("###【鉄板推奨】条件達成")
-            st.success("**1号艇1着確率が81%以上、かつスコアが222以上の買い目があります。予想上位3位以内について購入してください。**")
+            st.success("**1号艇1着確率が90%以上、かつスコアが240以上の買い目があります。予想上位3位以内について購入してください。**")
 
         st.markdown("AI予測 3連単 上位5通り")
         result_df = pd.DataFrame([
