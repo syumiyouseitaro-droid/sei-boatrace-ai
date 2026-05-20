@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components # 追加: アイコン設定用
 import pandas as pd
 import numpy as np
 import requests
@@ -26,6 +27,25 @@ MODEL_DIR = "."
 # ページ設定 (最初に記述する必要があります)
 # ==========================================
 st.set_page_config(page_title="競艇AI予測モデル", layout="wide")
+
+# ==========================================
+# iPhoneホーム画面用のオリジナルアイコン設定
+# ==========================================
+# GitHubにアップロードした正方形PNG画像のURLをここに貼り付けてください
+icon_url = "https://raw.githubusercontent.com/syumiyouseitaro-droid/sei-boatrace-ai/main/BAI_icon.png"
+
+components.html(
+    f"""
+    <script>
+        var link = document.createElement('link');
+        link.rel = 'apple-touch-icon';
+        link.href = '{icon_url}';
+        document.head.appendChild(link);
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 # ==========================================
 # カスタムCSS (スマホ最適化・絵文字なし・モダンデザイン)
