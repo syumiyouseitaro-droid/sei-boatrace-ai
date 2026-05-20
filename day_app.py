@@ -167,7 +167,7 @@ def scrape_todays_target_races(target_date):
 # ==========================================
 # UI表示部分 (Streamlit メイン)
 # ==========================================
-st.title("本日の勝負レース抽出ツール")
+st.title("本日のAI予想対象レース")
 st.markdown("全国24箇所のボートレース場から、「一般戦」かつ「4日目以降」の開催場を自動で探し出します。")
 
 jst = pytz.timezone('Asia/Tokyo')
