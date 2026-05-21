@@ -341,10 +341,24 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         for col in set(features + boat1_features):
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        X_boat1 = df[df['枠番'] == 1][boat1_features]
+        # （中略）...
+        
+        # ▼ここから追加：モデルが記憶している正しい順番を取得する関数
+        def get_expected_cols(model):
+            if hasattr(model, 'feature_names_in_'):
+                return list(model.feature_names_in_) 
+            else:
+                return boat1_features if model == model_1st_boat else features
+
+        # ▼変更：X_boat1 をスライスする際、正しい順番で自動的に並べ替える（reindex）
+        expected_boat1_cols = get_expected_cols(model_1st_boat)
+        X_boat1 = df[df['枠番'] == 1].reindex(columns=expected_boat1_cols, fill_value=0)
         boat1_win_prob = model_1st_boat.predict_proba(X_boat1)[0][1]
 
-        X_pred = df[features]
+        # ▼変更：X_pred も同様に、正しい順番で自動的に並べ替える
+        expected_pred_cols = get_expected_cols(expert_models['1st'])
+        X_pred = df.reindex(columns=expected_pred_cols, fill_value=0)
+        
         p1 = expert_models['1st'].predict_proba(X_pred)[:, 1]
         p2 = expert_models['2nd'].predict_proba(X_pred)[:, 1]
         p_top3 = expert_models['top3'].predict_proba(X_pred)[:, 1]
