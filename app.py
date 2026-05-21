@@ -440,7 +440,7 @@ st.markdown("### 予測設定")
 # 入力項目をメイン画面上部に配置
 col1, col2 = st.columns(2)
 with col1:
-    jcd_dict = {"01": "桐生", "13": "尼崎", "20": "若松", "24": "大村"} 
+    jcd_dict = {"01": "桐生", "13": "尼崎", "15": "丸亀", "20": "若松", "24": "大村"} 
     jcd_name = st.selectbox("競艇場を選択", list(jcd_dict.values()))
     jcd_code = [k for k, v in jcd_dict.items() if v == jcd_name][0]
     
