@@ -358,7 +358,15 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
 
         missing_cols = [col for col in col_unique if df[col].isna().any()]
         if missing_cols:
-            st.warning("展示タイムなど、予測に必要なデータが未発表または不足しているため予測を中止します。")
+            missing_details = []
+            for col in missing_cols:
+                # 欠損している号艇を取得
+                missing_boats = df[df[col].isna()]['枠番'].tolist()
+                boats_str = "、".join([f"{int(b)}号艇" for b in missing_boats])
+                missing_details.append(f"- **{col}** （対象: {boats_str}）")
+            
+            error_msg = "以下の予測に必要なデータが未発表または不足しているため、予測を中止します。\n\n" + "\n".join(missing_details)
+            st.warning(error_msg)
             return
 
         for col in set(features + boat1_features):
