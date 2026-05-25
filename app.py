@@ -37,26 +37,6 @@ st.markdown("""
         font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
     }
     
-    /* Metric(指標)カードのデザイン */
-    div[data-testid="metric-container"] {
-        background-color: #f8f9fa;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 15px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
-        text-align: left;
-    }
-    div[data-testid="metric-container"] > label {
-        font-weight: bold;
-        color: #333;
-        font-size: 1.1rem;
-    }
-    div[data-testid="metric-container"] > div {
-        color: #0066cc;
-        font-size: 2rem !important;
-        font-weight: 800;
-    }
-    
     /* 買い目ランキングのカード風デザイン */
     .ranking-card {
         background: linear-gradient(135deg, #ffffff, #f0f4f8);
@@ -80,6 +60,7 @@ st.markdown("""
         justify-content: center;
         align-items: center;
         border-radius: 50%;
+        flex-shrink: 0;
     }
     .ranking-bet {
         font-size: 1.8rem;
@@ -93,14 +74,11 @@ st.markdown("""
         text-align: right;
         font-size: 0.9rem;
         color: #555;
+        min-width: 130px;
     }
     .ranking-stats span {
         display: block;
         margin-bottom: 2px;
-    }
-    .ev-text {
-        color: #e74c3c;
-        font-weight: bold;
     }
 
     /* スマホ向けの設定 */
@@ -108,8 +86,16 @@ st.markdown("""
         .ranking-bet { font-size: 1.3rem; }
         .ranking-rank { width: 25px; height: 25px; font-size: 1rem; }
         .ranking-stats { font-size: 0.8rem; }
-        div[data-testid="metric-container"] { padding: 10px; }
         .block-container { padding-left: 1rem; padding-right: 1rem; }
+    }
+    
+    /* ヘッダー強調用 */
+    .highlight-header {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 6px solid #0056b3;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -295,30 +281,6 @@ def scrape_odds_3t(hd: str, rno: int, jcd: str) -> dict:
         pass
     return odds_dict
 
-def get_target_race_result(hd: str, rno: int, jcd: str):
-    session = create_robust_session()
-    url = f"https://www.boatrace.jp/owpc/pc/race/resultlist?jcd={jcd}&hd={hd}"
-    try:
-        res = session.get(url, timeout=15)
-        res.encoding = res.apparent_encoding
-        soup = BeautifulSoup(res.text, 'html.parser')
-
-        rows = soup.find_all('tr')
-        for row in rows:
-            cols = row.find_all('td')
-            row_data = [col.get_text(strip=True) for col in cols if col.get_text(strip=True)]
-            if len(row_data) >= 3 and re.match(r'^([1-9]|1[0-2])R$', row_data[0]):
-                current_rno = int(row_data[0].replace('R', ''))
-                if current_rno == rno:
-                    nums = row_data[1].split('-')
-                    payout_str = row_data[2].replace('¥', '').replace(',', '').strip()
-                    payout_val = int(payout_str) if payout_str.isdigit() else row_data[2]
-                    if len(nums) == 3 and all(n.isdigit() for n in nums):
-                        return {"result": (int(nums[0]), int(nums[1]), int(nums[2])), "payout": payout_val}
-    except Exception:
-        pass
-    return None
-
 def get_custom_series_rank(row) -> float:
     try:
         course = int(row['枠番'])
@@ -359,7 +321,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
     with st.spinner("WEBから最新の出走表・オッズデータを取得・解析中..."):
         r_info = scrape_target_race_basic(hd_input, rno, jcd)
         odds_dict = scrape_odds_3t(hd_input, rno, jcd)
-        actual_result = get_target_race_result(hd_input, rno, jcd)
 
     if not r_info:
         st.error("出走表データが取得できませんでした。レース番号や日付を確認してください。")
@@ -428,29 +389,34 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         rank_2nd = np.argsort(p_2nd)[::-1] + 1
         rank_top3 = np.argsort(p_top3)[::-1] + 1
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="イン逃げ期待度 (1号艇1着確率)", value=f"{boat1_win_prob*100:.1f}%")
-
-        st.divider()
-
+        # フォーメーションの決定
         THRESHOLD = 0.95
         if boat1_win_prob >= THRESHOLD:
-            st.info(f"🚀 **[AI判断] 1号艇1着確率 {boat1_win_prob*100:.1f}%** → 【1号艇1着固定フォーメーション (1-4-4)】")
             candidates_1st = [1]
             candidates_2nd = rank_2nd[:4].tolist()
             candidates_3rd = rank_top3[:5].tolist()
+            form_type_text = "【1号艇1着固定フォーメーション】"
         else:
-            st.info(f"🌊 **[AI判断] 1号艇1着確率 {boat1_win_prob*100:.1f}%** → 【通常フォーメーション (2-4-5)】")
             candidates_1st = rank_1st[:2].tolist()
             candidates_2nd = rank_2nd[:4].tolist()
             candidates_3rd = rank_top3[:5].tolist()
+            form_type_text = "【通常フォーメーション】"
 
         form_str_1st = "".join(map(str, sorted(candidates_1st)))
         form_str_2nd = "".join(map(str, sorted(candidates_2nd)))
         form_str_3rd = "".join(map(str, sorted(candidates_3rd)))
         formation_display = f"{form_str_1st}-{form_str_2nd}-{form_str_3rd}"
-        st.write(f"**展開フォーメーション**: {formation_display}")
+
+        # トップ情報の表示（1号艇確率とフォーメーション）
+        st.markdown(f"""
+        <div class="highlight-header">
+            <h3 style="margin-top: 0; color: #333;">🎯 予測フォーメーション: <span style="color: #0056b3;">{formation_display}</span></h3>
+            <p style="margin-bottom: 0; font-size: 1.1rem; color: #555;">
+                <strong>1号艇1着確率:</strong> <span style="color: #d35400; font-weight: bold; font-size: 1.3rem;">{boat1_win_prob*100:.1f}%</span> <br>
+                <span style="font-size: 0.9rem;">(AI判定: {form_type_text})</span>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
         # 各買い目の計算（期待値とスコア）
         formation_bets = []
@@ -480,18 +446,29 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         formation_bets.sort(key=lambda x: x['score'], reverse=True)
         bet_count = len(formation_bets)
 
-        st.markdown(f"### AI予測 3連単 上位5通り (実質買い目: 計{bet_count}点)")
-        ranks = ["1", "2", "3", "4", "5"]
-        for i, res in enumerate(formation_bets[:5]):
-            ev_str = f"{res['ev']:.2f}" if res['ev'] > 0 else "算出不可"
+        st.markdown(f"### 📊 予測買い目一覧 (スコア順・全{bet_count}点)")
+        
+        # すべての買い目を表示
+        for i, res in enumerate(formation_bets):
+            ev_val = res['ev']
+            ev_str = f"{ev_val:.2f}" if ev_val > 0 else "算出不可"
             odds_str = f"{res['odds']:.1f}倍" if res['odds'] > 0 else "未発表"
+            
+            # EVが2.0以上の場合は赤文字＆太字にして炎アイコンを追加
+            if ev_val >= 2.0:
+                ev_style = "color: #e74c3c; font-weight: 900; font-size: 1.05rem;"
+                ev_icon = "🔥 "
+            else:
+                ev_style = "color: #2c3e50; font-weight: bold;"
+                ev_icon = ""
+
             html_card = f"""
             <div class="ranking-card">
-                <div class="ranking-rank">{ranks[i]}</div>
+                <div class="ranking-rank">{i+1}</div>
                 <div class="ranking-bet">{res['combo'][0]} - {res['combo'][1]} - {res['combo'][2]}</div>
                 <div class="ranking-stats">
                     <span>オッズ: {odds_str}</span>
-                    <span class="ev-text">期待値(EV): {ev_str}</span>
+                    <span style="{ev_style}">{ev_icon}期待値(EV): {ev_str}</span>
                     <span>Score: {res['score']*1000:.1f}</span>
                 </div>
             </div>
@@ -499,20 +476,6 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             st.markdown(html_card, unsafe_allow_html=True)
 
         st.divider()
-
-        # 実結果の表示処理（レースが終了している場合）
-        if actual_result:
-            actual_tuple = actual_result["result"]
-            actual_payout = actual_result["payout"]
-            is_hit = any(b['combo'] == actual_tuple for b in formation_bets)
-            profit = actual_payout - (bet_count * 100) if is_hit else -(bet_count * 100)
-            
-            st.markdown("### 🏁 レース結果")
-            if is_hit:
-                st.success(f"**結果:** 🎯 的中 【{actual_tuple[0]}-{actual_tuple[1]}-{actual_tuple[2]}】\n\n**払戻:** {actual_payout}円 | **投資:** {bet_count * 100}円 | **収支:** {profit}円")
-            else:
-                st.error(f"**結果:** ❌ ハズレ 【{actual_tuple[0]}-{actual_tuple[1]}-{actual_tuple[2]}】\n\n**払戻:** 0円 | **投資:** {bet_count * 100}円 | **収支:** {profit}円")
-            st.divider()
 
         with st.expander("内部データとAI評価の可視化 (詳細)", expanded=False):
             st.markdown("モデルが算出した各号艇の確率と、入力された特徴量を確認できます。")
