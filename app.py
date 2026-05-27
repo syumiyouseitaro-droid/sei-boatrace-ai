@@ -398,7 +398,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         rank_top3 = np.argsort(p_top3)[::-1] + 1
 
         # フォーメーションの決定
-        THRESHOLD = 0.95
+        THRESHOLD = 0.99
         if boat1_win_prob >= THRESHOLD:
             candidates_1st = [1]
             candidates_2nd = rank_2nd[:4].tolist()
