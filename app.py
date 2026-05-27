@@ -463,7 +463,7 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             odds_str = f"{res['odds']:.1f}倍" if res['odds'] > 0 else "未発表"
             
             # スコア順位が6位以内 (i < 6) かつ EVが1.5以上の場合は赤文字＆太字にして炎アイコンを追加
-            if i < 6 and ev_val >= 1.5:
+            if i < 6 and ev_val >= 5.0:
                 ev_style = "color: #e74c3c; font-weight: 900; font-size: 1.05rem;"
                 ev_icon = "🔥 "
             else:
