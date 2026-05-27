@@ -415,16 +415,31 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         form_str_3rd = "".join(map(str, sorted(candidates_3rd)))
         formation_display = f"{form_str_1st}-{form_str_2nd}-{form_str_3rd}"
 
+        # -----------------------------------------------------
+        # ▼ 1号艇1着確率の表示スタイルを60%〜80%の範囲で強調 ▼
+        # -----------------------------------------------------
+        prob_pct = boat1_win_prob * 100
+        
+        if 60.0 <= prob_pct <= 80.0:
+            # 60〜80%の場合は太字＆赤文字＆黄色ハイライトなどの特別装飾を追加
+            prob_style = "color: #e74c3c; font-weight: 900; font-size: 1.8rem; background-color: #fff3cd; border: 2px solid #ffeeba; padding: 2px 8px; border-radius: 5px; box-shadow: 0 0 8px rgba(231,76,60,0.3);"
+            prob_icon = "🔥勝負目! "
+        else:
+            # それ以外（通常時）のスタイル
+            prob_style = "color: #d35400; font-weight: bold; font-size: 1.3rem;"
+            prob_icon = ""
+
         # トップ情報の表示（1号艇確率とフォーメーション）
         st.markdown(f"""
         <div class="highlight-header">
             <h3 style="margin-top: 0; color: #333;">🎯 予測フォーメーション: <span style="color: #0056b3;">{formation_display}</span></h3>
             <p style="margin-bottom: 0; font-size: 1.1rem; color: #555;">
-                <strong>1号艇1着確率:</strong> <span style="color: #d35400; font-weight: bold; font-size: 1.3rem;">{boat1_win_prob*100:.1f}%</span> <br>
+                <strong>1号艇1着確率:</strong> <span style="{prob_style}">{prob_icon}{prob_pct:.1f}%</span> <br>
                 <span style="font-size: 0.9rem;">(AI判定: {form_type_text})</span>
             </p>
         </div>
         """, unsafe_allow_html=True)
+        # -----------------------------------------------------
 
         # 各買い目の計算（期待値とスコア）
         formation_bets = []
