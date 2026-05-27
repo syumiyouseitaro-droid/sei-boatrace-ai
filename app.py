@@ -477,8 +477,8 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
             ev_str = f"{ev_val:.2f}" if ev_val > 0 else "算出不可"
             odds_str = f"{res['odds']:.1f}倍" if res['odds'] > 0 else "未発表"
             
-            # スコア順位が6位以内 (i < 6) かつ EVが1.5以上の場合は赤文字＆太字にして炎アイコンを追加
-            if i < 5 and ev_val >= 1.0:
+            # スコア順位が8位以内 (i < 8) かつ EVが1.0以上の場合は赤文字＆太字にして炎アイコンを追加
+            if i < 8 and ev_val >= 1.0:
                 ev_style = "color: #e74c3c; font-weight: 900; font-size: 1.05rem;"
                 ev_icon = "🔥 "
             else:
