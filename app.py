@@ -416,6 +416,13 @@ def evaluate_single_race(hd_input: str, rno: int, jcd: str, jcd_name: str, loade
         formation_display = f"{form_str_1st}-{form_str_2nd}-{form_str_3rd}"
 
 
+        prob_pct = boat1_win_prob * 100
+        
+        # 条件分岐なしのシンプルな定義
+        prob_style = "color: #2c3e50; font-weight: bold;"
+        prob_icon = ""
+
+        
         # トップ情報の表示（1号艇確率とフォーメーション）
         st.markdown(f"""
         <div class="highlight-header">
